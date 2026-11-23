@@ -23,12 +23,11 @@
     <a href="#" id="nav-admin" class="hidden">Admin</a>
   </div>
   <div class="nav__actions">
+    <input type="text" id="global-search" class="form-input nav-search" placeholder="Szukaj użytkownika...">
     <button id="theme-toggle" class="theme-toggle" aria-label="Zmień motyw">
       <span id="theme-icon">☾</span>
-    <button id="profile-btn" class="theme-toggle hidden" aria-label="Profil" style="font-weight: 500;">
-      <span id="profile-initial">?</span>
     </button>
-    </button>
+    <button id="nav-profile-btn" class="btn btn--small hidden">Mój Profil</button>
     <button id="logout-btn" class="btn btn--small hidden">Wyloguj</button>
   </div>
 </nav>
@@ -78,6 +77,43 @@
         </p>
       </div>
       <button class="btn btn--ghost" id="pending-logout">Wyloguj</button>
+    </div>
+  </section>
+
+  <section id="view-profile" class="view hidden">
+    <div class="profile-layout">
+      <div class="profile-cover">
+        <div class="profile-header-content">
+          <div class="profile-avatar-large" id="profile-avatar-display">?</div>
+          <div class="profile-title">
+            <h1 id="profile-name-display">Username</h1>
+            <p id="profile-friends-count">0 znajomych</p>
+          </div>
+          <div class="profile-actions" id="profile-actions">
+          </div>
+        </div>
+      </div>
+
+      <div class="profile-grid">
+        <aside class="profile-sidebar">
+          <h3 class="section__title">Znajomi</h3>
+          <ul id="friends-list" class="sidebar-list"></ul>
+        </aside>
+
+        <main class="profile-main">
+          <h3 class="section__title">Ściana</h3>
+          <div id="wall-input-container" class="wall-input">
+            <textarea id="wall-input" class="form-input" placeholder="Napisz coś na ścianie..." rows="3"></textarea>
+            <button id="wall-submit" class="btn btn--small" style="margin-top: 8px;">Opublikuj</button>
+          </div>
+          <div id="wall-feed" class="wall-feed"></div>
+        </main>
+
+        <aside class="profile-sidebar">
+          <h3 class="section__title">Odwiedzone miejsca</h3>
+          <ul id="visited-list" class="sidebar-list"></ul>
+        </aside>
+      </div>
     </div>
   </section>
 
@@ -201,25 +237,25 @@
   </div>
 </div>
 
-<div class="modal" id="profile-modal" data-open="false">
-  <div class="modal__backdrop" data-close="profile-modal"></div>
+<div class="modal" id="profile-edit-modal" data-open="false">
+  <div class="modal__backdrop" data-close="profile-edit-modal"></div>
   <div class="modal__panel">
     <header class="modal__head">
-      <h2 class="modal__title">Mój Profil</h2>
-      <button class="modal__close" data-close="profile-modal">Zamknij ✕</button>
+      <h2 class="modal__title">Edytuj Profil</h2>
+      <button class="modal__close" data-close="profile-edit-modal">Zamknij ✕</button>
     </header>
     <div class="modal__body">
       <div class="form-row">
         <label class="form-label">Nazwa użytkownika</label>
-        <input class="form-input" id="profile-username">
+        <input class="form-input" id="edit-username">
       </div>
       <div class="form-row">
-        <label class="form-label">Avatar (URL)</label>
-        <input class="form-input" id="profile-avatar" placeholder="https://...">
+        <label class="form-label">Avatar (URL do zdjęcia)</label>
+        <input class="form-input" id="edit-avatar" placeholder="https://...">
       </div>
-      <div class="msg" id="profile-msg"></div>
+      <div class="msg" id="edit-msg"></div>
       <div class="form-actions">
-        <button class="btn" id="profile-save">Zapisz</button>
+        <button class="btn" id="edit-save">Zapisz zmiany</button>
       </div>
     </div>
   </div>

@@ -11,6 +11,8 @@ let currentGallery = [];
 let currentGalleryIdx = 0;
 let currentPlace = null;
 let isVisited = false;
+let currentProfileId = null;
+let myProfile = null;
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls) => { const n = document.createElement(tag); if (cls) n.className = cls; return n; };
@@ -113,21 +115,16 @@ async function loadProfileAndRoute(user) {
     return show('pending');
   }
   currentProfile = profile;
-
-    const initial = (profile.username || profile.email || '?')[0].toUpperCase();
-    $('profile-initial').textContent = initial;
-    $('profile-btn').classList.remove('hidden');
+  myProfile = profile;
+  currentProfileId = user.id;
 
   if (profile.role === 'admin' || profile.role === 'approved_user') {
     show('map');
     initMapIfNeeded();
     await loadPlaces();
-    if (profile.role === 'admin') {
-      $('nav-admin').classList.remove('hidden');
-    } else {
-      $('nav-admin').classList.add('hidden');
-    }
+    $('nav-profile-btn').classList.remove('hidden');
     $('logout-btn').classList.remove('hidden');
+    if (profile.role === 'admin') $('nav-admin').classList.remove('hidden');
   } else {
     show('pending');
   }
@@ -587,6 +584,200 @@ $('profile-save').addEventListener('click', async () => {
   msg.textContent = 'Zapisano profil.';
   $('profile-initial').textContent = (username || '?')[0].toUpperCase();
   setTimeout(() => closeModal('profile-modal'), 1000);
+});
+
+const originalShow = show;
+window.show = function(which) {
+  ['auth', 'pending', 'map', 'profile'].forEach(v => {
+    $('view-' + v).classList.toggle('hidden', v !== which);
+  });
+  if (which !== 'map' && which !== 'profile') {
+    $('nav-admin').classList.add('hidden');
+    $('nav-profile-btn').classList.add('hidden');
+    $('logout-btn').classList.add('hidden');
+  }
+  if (which === 'map') {
+    $('nav-profile-btn').classList.remove('hidden');
+    $('logout-btn').classList.remove('hidden');
+  }
+};
+
+$('nav-profile-btn').addEventListener('click', () => {
+  openProfile(currentProfileId);
+});
+
+$('global-search').addEventListener('input', async (e) => {
+  const query = e.target.value.trim();
+  if (query.length < 2) return;
+
+  const { data: users } = await sb.from('profiles')
+    .select('id, username, email')
+    .ilike('username', `%${query}%`)
+    .limit(5);
+
+  if (users && users.length > 0) {
+    e.target.onkeydown = (ev) => {
+      if (ev.key === 'Enter') {
+        openProfile(users[0].id);
+        e.target.value = '';
+        e.target.onkeydown = null;
+      }
+    };
+  }
+});
+
+async function openProfile(userId) {
+  window.show('profile');
+  currentProfileId = userId;
+
+  const { data: profile } = await sb.from('profiles').select('*').eq('id', userId).single();
+  if (!profile) return;
+
+  const avatarHtml = profile.avatar_url 
+    ? `<img src="${escapeAttr(profile.avatar_url)}" alt="avatar">`
+    : (profile.username || profile.email || '?')[0].toUpperCase();
+  
+  $('profile-avatar-display').innerHTML = avatarHtml;
+  $('profile-name-display').textContent = profile.username || profile.email.split('@')[0];
+
+  const actionsDiv = $('profile-actions');
+  actionsDiv.innerHTML = '';
+  
+  if (userId === myProfile.id) {
+    const btn = el('button', 'btn btn--small btn--ghost');
+    btn.textContent = 'Edytuj profil';
+    btn.onclick = openEditProfile;
+    actionsDiv.appendChild(btn);
+    $('wall-input-container').style.display = 'block'; 
+  } else {
+    const { data: friendship } = await sb.from('friendships')
+      .select('*')
+      .or(`and(user1_id.eq.${myProfile.id},user2_id.eq.${userId}),and(user1_id.eq.${userId},user2_id.eq.${myProfile.id})`)
+      .maybeSingle();
+
+    const friendBtn = el('button', 'btn btn--small');
+    if (friendship) {
+      friendBtn.textContent = 'Usuń ze znajomych';
+      friendBtn.className = 'btn btn--small btn--danger';
+      friendBtn.onclick = async () => {
+        await sb.from('friendships').delete().eq('id', friendship.id);
+        openProfile(userId);
+      };
+    } else {
+      friendBtn.textContent = 'Dodaj do znajomych';
+      friendBtn.onclick = async () => {
+        await sb.from('friendships').insert({ user1_id: myProfile.id, user2_id: userId });
+        openProfile(userId); 
+      };
+    }
+    actionsDiv.appendChild(friendBtn);
+    $('wall-input-container').style.display = 'block'; 
+  }
+
+  const { data: friends } = await sb.from('friendships')
+    .select(`*, user1:profiles!friendships_user1_id_fkey(id, username, avatar_url), user2:profiles!friendships_user2_id_fkey(id, username, avatar_url)`)
+    .or(`user1_id.eq.${userId},user2_id.eq.${userId}`);
+
+  const friendsList = $('friends-list');
+  friendsList.innerHTML = '';
+  let friendCount = 0;
+  
+  if (friends) {
+    friends.forEach(f => {
+      const friendProfile = f.user1_id === userId ? f.user2 : f.user1;
+      friendCount++;
+      const li = el('li');
+      li.innerHTML = `
+        <div class="sidebar-avatar">${friendProfile.avatar_url ? `<img src="${friendProfile.avatar_url}">` : (friendProfile.username||'?')[0].toUpperCase()}</div>
+        <span style="cursor:pointer" onclick="openProfile('${friendProfile.id}')">${escapeHtml(friendProfile.username || 'User')}</span>
+      `;
+      friendsList.appendChild(li);
+    });
+  }
+  $('profile-friends-count').textContent = `${friendCount} znajomych`;
+
+  const { data: visits } = await sb.from('visits').select('places(title)').eq('user_id', userId);
+  const visitedList = $('visited-list');
+  visitedList.innerHTML = '';
+  if (visits) {
+    visits.forEach(v => {
+      if (v.places) {
+        const li = el('li');
+        li.textContent = v.places.title;
+        visitedList.appendChild(li);
+      }
+    });
+  }
+
+  loadWall(userId);
+}
+
+async function loadWall(targetId) {
+  const { data: posts } = await sb.from('wall_posts')
+    .select('*, author:profiles!wall_posts_author_id_fkey(username, avatar_url)')
+    .eq('target_id', targetId)
+    .order('created_at', { ascending: false });
+
+  const feed = $('wall-feed');
+  feed.innerHTML = '';
+  if (posts) {
+    posts.forEach(p => {
+      const date = new Date(p.created_at).toLocaleString();
+      const avatarHtml = p.author.avatar_url ? `<img src="${p.author.avatar_url}">` : (p.author.username || '?')[0].toUpperCase();
+      const postDiv = el('div', 'wall-post');
+      postDiv.innerHTML = `
+        <div class="wall-post__header">
+          <div class="sidebar-avatar">${avatarHtml}</div>
+          <div>
+            <div class="wall-post__author">${escapeHtml(p.author.username || 'User')}</div>
+            <div class="wall-post__date">${date}</div>
+          </div>
+        </div>
+        <div class="wall-post__content">${escapeHtml(p.content)}</div>
+      `;
+      feed.appendChild(postDiv);
+    });
+  }
+}
+
+$('wall-submit').addEventListener('click', async () => {
+  const content = $('wall-input').value.trim();
+  if (!content) return;
+  $('wall-input').value = '';
+  await sb.from('wall_posts').insert({
+    author_id: myProfile.id,
+    target_id: currentProfileId,
+    content: content
+  });
+  loadWall(currentProfileId);
+});
+
+function openEditProfile() {
+  $('edit-username').value = myProfile.username || '';
+  $('edit-avatar').value = myProfile.avatar_url || '';
+  openModal('profile-edit-modal');
+}
+
+$('edit-save').addEventListener('click', async () => {
+  const msg = $('edit-msg');
+  msg.className = 'msg';
+  const username = $('edit-username').value.trim();
+  const avatar_url = $('edit-avatar').value.trim();
+
+  const { error } = await sb.from('profiles').update({ username, avatar_url }).eq('id', myProfile.id);
+  if (error) {
+    msg.className = 'msg msg--error';
+    msg.textContent = 'Błąd: ' + error.message;
+    return;
+  }
+  myProfile.username = username;
+  myProfile.avatar_url = avatar_url;
+  msg.className = 'msg msg--ok';
+  msg.textContent = 'Zapisano!';
+  setTimeout(() => {
+    closeModal('profile-edit-modal');
+    openProfile(myProfile.id); 
+  }, 800);
 });
 
 (async function start() {
