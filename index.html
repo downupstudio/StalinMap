@@ -3,59 +3,48 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>StalinMap</title>
+<title>Mapa Urbex</title>
 <link href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.6.1/dist/maplibre-gl.css" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 <script>
-  document.documentElement.setAttribute('data-theme',
-    localStorage.getItem('theme') || 'light');
+  document.documentElement.setAttribute('data-theme', localStorage.getItem('theme') || 'light');
 </script>
 </head>
 <body>
 
 <nav class="nav">
-  <div class="nav__logo">
-    <span class="nav__logo-mark">▲</span>
-    <span>URBEX / MAPA</span>
-  </div>
+  <div class="nav__logo"><span class="nav__logo-mark">▲</span><span>URBEX / MAPA</span></div>
   <div class="nav__links" id="nav-links">
-    <a href="#" data-view="map" class="active">Mapa</a>
+    <a href="#" data-view="map" class="active" id="nav-map-btn">Mapa</a>
     <a href="#" id="nav-admin" class="hidden">Admin</a>
   </div>
   <div class="nav__actions">
-    <input type="text" id="global-search" class="form-input nav-search" placeholder="Szukaj użytkownika...">
-    <button id="theme-toggle" class="theme-toggle" aria-label="Zmień motyw">
-      <span id="theme-icon">☾</span>
-    </button>
+    <input type="text" id="global-search" class="form-input nav-search" placeholder="Szukaj użytkownika..." autocomplete="off">
+    <button id="theme-toggle" class="theme-toggle"><span id="theme-icon">☾</span></button>
     <button id="nav-profile-btn" class="btn btn--small hidden">Mój Profil</button>
     <button id="logout-btn" class="btn btn--small hidden">Wyloguj</button>
   </div>
 </nav>
 
 <main>
-
   <section id="view-auth" class="view auth-shell hidden">
     <div class="auth-card">
       <div class="auth-card__head">
         <div class="auth-card__eyebrow">Dostęp ograniczony</div>
         <h1 class="auth-card__title">Zaloguj się</h1>
-        <p class="auth-card__note">
-          Nowe konta wymagają zatwierdzenia przez administratora.
-        </p>
       </div>
-
       <form id="auth-form" class="form form--bare">
         <div class="form-row" id="username-row" style="display:none;">
           <label class="form-label" for="auth-username">Nazwa użytkownika</label>
-          <input class="form-input" id="auth-username" type="text" autocomplete="username">
+          <input class="form-input" id="auth-username" type="text">
         </div>
         <div class="form-row">
           <label class="form-label" for="auth-email">E-mail</label>
-          <input class="form-input" id="auth-email" type="email" required autocomplete="email">
+          <input class="form-input" id="auth-email" type="email" required>
         </div>
         <div class="form-row">
           <label class="form-label" for="auth-password">Hasło</label>
-          <input class="form-input" id="auth-password" type="password" required minlength="6" autocomplete="current-password">
+          <input class="form-input" id="auth-password" type="password" required>
         </div>
         <div class="msg" id="auth-msg"></div>
         <div class="form-actions">
@@ -68,15 +57,24 @@
 
   <section id="view-pending" class="view auth-shell hidden">
     <div class="auth-card">
-      <div class="auth-card__head">
-        <div class="auth-card__eyebrow">Status konta</div>
-        <h1 class="auth-card__title">Oczekiwanie</h1>
-        <p class="auth-card__note">
-          Twoje konto zostało utworzone i czeka na zatwierdzenie przez administratora (czyli mnie).
-          Wróć później lub odezwij się do opiekuna strony (@gabriel_is_dead_now na Instagramie).
-        </p>
-      </div>
+      <h1 class="auth-card__title">Oczekiwanie</h1>
+      <p class="auth-card__note" style="margin-bottom:20px;">Twoje konto czeka na zatwierdzenie przez administratora.</p>
       <button class="btn btn--ghost" id="pending-logout">Wyloguj</button>
+    </div>
+  </section>
+
+  <section id="view-map" class="view view--map hidden">
+    <div class="explorer">
+      <aside class="explorer__sidebar">
+        <div class="explorer__search"><input class="form-input" id="search-input" placeholder="Szukaj miejsca…"></div>
+        <div class="filter-group">
+          <div class="filter-group__label">Kategorie</div>
+          <ul class="filter-list" id="category-list"></ul>
+        </div>
+        <div class="filter-line">Znaleziono: <strong id="places-count">0</strong> miejsc</div>
+        <ul class="place-list-simple" id="places-list"></ul>
+      </aside>
+      <div class="map-wrap"><div id="map"></div></div>
     </div>
   </section>
 
@@ -89,8 +87,7 @@
             <h1 id="profile-name-display">Username</h1>
             <p id="profile-friends-count">0 znajomych</p>
           </div>
-          <div class="profile-actions" id="profile-actions">
-          </div>
+          <div class="profile-actions" id="profile-actions"></div>
         </div>
       </div>
 
@@ -103,7 +100,7 @@
         <main class="profile-main">
           <h3 class="section__title">Ściana</h3>
           <div id="wall-input-container" class="wall-input">
-            <textarea id="wall-input" class="form-input" placeholder="Napisz coś na ścianie..." rows="3"></textarea>
+            <textarea id="wall-input" class="form-input" placeholder="Napisz coś..." rows="2"></textarea>
             <button id="wall-submit" class="btn btn--small" style="margin-top: 8px;">Opublikuj</button>
           </div>
           <div id="wall-feed" class="wall-feed"></div>
@@ -116,53 +113,20 @@
       </div>
     </div>
   </section>
-
-  <section id="view-map" class="view view--map hidden">
-    <div class="explorer">
-      <aside class="explorer__sidebar">
-        <div class="explorer__search">
-          <input class="form-input" id="search-input" placeholder="Szukaj miejsca…">
-        </div>
-
-        <div class="filter-group">
-          <div class="filter-group__label">Kategorie</div>
-          <ul class="filter-list" id="category-list">
-            <li><button class="filter-btn active" data-cat="all">
-              <span>Wszystkie</span><span class="count" id="count-all">0</span>
-            </button></li>
-          </ul>
-        </div>
-
-        <div class="filter-line">
-          Znaleziono: <strong id="places-count">0</strong> miejsc
-        </div>
-
-        <ul class="place-list-simple" id="places-list"></ul>
-      </aside>
-
-      <div class="map-wrap">
-        <div id="map"></div>
-      </div>
-    </div>
-  </section>
-
 </main>
 
 <div class="modal" id="place-modal" data-open="false">
   <div class="modal__backdrop" data-close="place-modal"></div>
   <div class="modal__panel">
-    <header class="modal__head">
-      <h2 class="modal__title" id="place-title">—</h2>
-      <button class="modal__close" data-close="place-modal">Zamknij ✕</button>
-    </header>
-    <div class="modal__body" id="place-body">
+    <header class="modal__head"><h2 class="modal__title" id="place-title">—</h2><button class="modal__close" data-close="place-modal">Zamknij ✕</button></header>
+    <div class="modal__body">
       <div class="place__meta" id="place-meta"></div>
+      <p class="place__desc" id="place-desc"></p>
       <div id="place-entry-wrap" style="margin-bottom: 20px; display:none;">
         <div class="section__title" style="margin-bottom: 8px;">Wejście</div>
         <p class="place__desc" id="place-entry-info" style="margin-bottom: 0;"></p>
       </div>
-      <p class="place__desc" id="place-desc"></p>
-    <button class="btn btn--small" id="btn-visited" style="margin-bottom: 20px;">Odwiedziłem to miejsce</button>
+      <button class="btn btn--small" id="btn-visited" style="margin-bottom: 20px;">Odwiedziłem to miejsce</button>
       <div class="photo-grid" id="place-gallery"></div>
     </div>
   </div>
@@ -171,24 +135,16 @@
 <div class="modal" id="admin-modal" data-open="false">
   <div class="modal__backdrop" data-close="admin-modal"></div>
   <div class="modal__panel modal__panel--wide">
-    <header class="modal__head">
-      <h2 class="modal__title">Panel administratora</h2>
-      <button class="modal__close" data-close="admin-modal">Zamknij ✕</button>
-    </header>
-
+    <header class="modal__head"><h2 class="modal__title">Panel Administratora</h2><button class="modal__close" data-close="admin-modal">Zamknij ✕</button></header>
     <div class="tabs" id="admin-tabs">
       <button class="tab active" data-tab="users">Użytkownicy</button>
       <button class="tab" data-tab="places">Miejsca</button>
     </div>
-
     <div class="modal__body">
       <div id="tab-users">
-        <h3 class="section__title">Oczekujący na zatwierdzenie</h3>
-        <ul class="admin-users" id="pending-users"></ul>
-        <h3 class="section__title" style="margin-top:32px">Zatwierdzeni</h3>
-        <ul class="admin-users" id="approved-users"></ul>
+        <h3 class="section__title">Oczekujący</h3><ul class="admin-users" id="pending-users"></ul>
+        <h3 class="section__title" style="margin-top:32px">Zatwierdzeni</h3><ul class="admin-users" id="approved-users"></ul>
       </div>
-
       <div id="tab-places" class="hidden">
         <button class="btn btn--small" id="btn-new-place">+ Nowe miejsce</button>
         <ul class="admin-places" id="admin-places-list" style="margin-top:16px"></ul>
@@ -200,65 +156,32 @@
 <div class="modal" id="editor-modal" data-open="false">
   <div class="modal__backdrop" data-close="editor-modal"></div>
   <div class="modal__panel modal__panel--wide">
-    <header class="modal__head">
-      <h2 class="modal__title" id="editor-title">Nowe miejsce</h2>
-      <button class="modal__close" data-close="editor-modal">Zamknij ✕</button>
-    </header>
+    <header class="modal__head"><h2 class="modal__title" id="editor-title">Nowe miejsce</h2><button class="modal__close" data-close="editor-modal">Zamknij ✕</button></header>
     <div class="modal__body">
-      <p class="editor-hint">
-        Współrzędne skopiuj z Google Maps. Galeria = tablica adresów URL.
-      </p>
-      <div class="form-row">
-        <label class="form-label">Zdjęcia — wgraj pliki (opcjonalnie)</label>
-        <input type="file" id="editor-upload" accept="image/*" multiple class="form-input">
-      </div>
-      <div class="form-row">
-        <label class="form-label">Dane (JSON)</label>
-        <textarea id="editor-json" class="form-input form-textarea" spellcheck="false"></textarea>
-      </div>
+      <div class="form-row"><label class="form-label">Zdjęcia (opcjonalnie)</label><input type="file" id="editor-upload" accept="image/*" multiple class="form-input"></div>
+      <div class="form-row"><label class="form-label">Dane (JSON)</label><textarea id="editor-json" class="form-input form-textarea" spellcheck="false"></textarea></div>
       <div class="msg" id="editor-msg"></div>
-      <div class="form-actions">
-        <button class="btn" id="editor-save">Zapisz</button>
-        <button class="btn btn--ghost" id="editor-delete">Usuń</button>
-      </div>
+      <div class="form-actions"><button class="btn" id="editor-save">Zapisz</button><button class="btn btn--ghost btn--danger" id="editor-delete">Usuń</button></div>
     </div>
-  </div>
-</div>
-
-<div class="lightbox" id="lightbox" data-open="false">
-  <div class="lightbox__bar">
-    <span class="lightbox__counter" id="lb-counter">1 / 1</span>
-    <button class="lightbox__close" id="lb-close">Zamknij ✕</button>
-  </div>
-  <div class="lightbox__body">
-    <button class="lightbox__nav" id="lb-prev">‹</button>
-    <div class="lightbox__stage"><img class="lightbox__img" id="lb-img" alt=""></div>
-    <button class="lightbox__nav" id="lb-next">›</button>
   </div>
 </div>
 
 <div class="modal" id="profile-edit-modal" data-open="false">
   <div class="modal__backdrop" data-close="profile-edit-modal"></div>
   <div class="modal__panel">
-    <header class="modal__head">
-      <h2 class="modal__title">Edytuj Profil</h2>
-      <button class="modal__close" data-close="profile-edit-modal">Zamknij ✕</button>
-    </header>
+    <header class="modal__head"><h2 class="modal__title">Edytuj Profil</h2><button class="modal__close" data-close="profile-edit-modal">Zamknij ✕</button></header>
     <div class="modal__body">
-      <div class="form-row">
-        <label class="form-label">Nazwa użytkownika</label>
-        <input class="form-input" id="edit-username">
-      </div>
-      <div class="form-row">
-        <label class="form-label">Avatar (URL do zdjęcia)</label>
-        <input class="form-input" id="edit-avatar" placeholder="https://...">
-      </div>
+      <div class="form-row"><label class="form-label">Nazwa użytkownika</label><input class="form-input" id="edit-username"></div>
+      <div class="form-row"><label class="form-label">Avatar (URL)</label><input class="form-input" id="edit-avatar" placeholder="https://..."></div>
       <div class="msg" id="edit-msg"></div>
-      <div class="form-actions">
-        <button class="btn" id="edit-save">Zapisz zmiany</button>
-      </div>
+      <div class="form-actions"><button class="btn" id="edit-save">Zapisz zmiany</button></div>
     </div>
   </div>
+</div>
+
+<div class="lightbox" id="lightbox" data-open="false">
+  <div class="lightbox__bar"><span class="lightbox__counter" id="lb-counter">1 / 1</span><button class="lightbox__close" id="lb-close">Zamknij ✕</button></div>
+  <div class="lightbox__body"><button class="lightbox__nav" id="lb-prev">‹</button><div class="lightbox__stage"><img class="lightbox__img" id="lb-img" alt=""></div><button class="lightbox__nav" id="lb-next">›</button></div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
