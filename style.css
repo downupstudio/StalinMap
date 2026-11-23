@@ -183,3 +183,79 @@ button { font: inherit; color: inherit; background: none; cursor: pointer; text-
   .nav-search { width: 140px; }
   .modal__body { padding: 16px; }
 }
+
+.tabs {
+  display: flex;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--border-light);
+  gap: 8px;
+  background: var(--bg);
+}
+
+.tab {
+  padding: 16px 20px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  opacity: 0.5;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px; 
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+.tab:hover {
+  opacity: 0.8;
+  background: var(--bg-subtle);
+}
+
+.tab.active {
+  opacity: 1;
+  border-bottom-color: var(--fg);
+  font-weight: 600;
+}
+
+.admin-users, .admin-places {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 15px;
+}
+
+.admin-users li, .admin-places li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 20px;
+  border: 1px solid var(--border);
+  background: var(--bg-subtle);
+  border-radius: 4px;
+  font-size: 0.85rem;
+  transition: border-color 0.2s;
+}
+
+.admin-users li:hover, .admin-places li:hover {
+  border-color: var(--border-strong);
+}
+
+.admin-places li span, 
+.admin-users li span.email {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#tab-users .section__title {
+  margin-top: 20px;
+  margin-bottom: 10px;
+  font-size: 0.75rem;
+  border-bottom: none;
+}
