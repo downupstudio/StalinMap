@@ -9,6 +9,8 @@ let currentSearch = '';
 let editingPlaceId = null;
 let currentGallery = [];
 let currentGalleryIdx = 0;
+let currentPlace = null;
+let isVisited = false;
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls) => { const n = document.createElement(tag); if (cls) n.className = cls; return n; };
@@ -112,6 +114,10 @@ async function loadProfileAndRoute(user) {
   }
   currentProfile = profile;
 
+    const initial = (profile.username || profile.email || '?')[0].toUpperCase();
+    $('profile-initial').textContent = initial;
+    $('profile-btn').classList.remove('hidden');
+
   if (profile.role === 'admin' || profile.role === 'approved_user') {
     show('map');
     initMapIfNeeded();
@@ -156,15 +162,20 @@ $('auth-form').addEventListener('submit', async (e) => {
 $('btn-register').addEventListener('click', async () => {
   const email = $('auth-email').value.trim();
   const password = $('auth-password').value;
+  const username = $('auth-username').value.trim();
   const msg = $('auth-msg');
   msg.className = 'msg'; msg.textContent = '';
 
-  if (!email || password.length < 6) {
+  if (!email || password.length < 6 || !username) {
     msg.className = 'msg msg--error';
-    msg.textContent = 'Podaj e-mail i hasło (min. 6 znaków).';
+    msg.textContent = 'Podaj e-mail, nazwę użytkownika i hasło (min. 6 znaków).';
     return;
   }
-  const { error } = await sb.auth.signUp({ email, password });
+  const { error } = await sb.auth.signUp({ 
+    email, 
+    password,
+    options: { data: { username } }
+  });
   if (error) {
     msg.className = 'msg msg--error';
     msg.textContent = 'Błąd rejestracji: ' + error.message;
@@ -250,7 +261,8 @@ $('search-input').addEventListener('input', (e) => {
   renderSidebar();
 });
 
-function openPlace(place) {
+async function openPlace(place) {
+  currentPlace = place;
   $('place-title').textContent = place.title;
   $('place-meta').innerHTML = `
     <span>${escapeHtml(place.category || 'inne')}</span>
@@ -258,12 +270,18 @@ function openPlace(place) {
   `;
   $('place-desc').textContent = place.description || '—';
 
+  if (place.entry_info) {
+    $('place-entry-wrap').style.display = 'block';
+    $('place-entry-info').textContent = place.entry_info;
+  } else {
+    $('place-entry-wrap').style.display = 'none';
+  }
+
   const gal = $('place-gallery');
   gal.innerHTML = '';
   const imgs = place.images || [];
   currentGallery = imgs;
   currentGalleryIdx = 0;
-
   if (!imgs.length) {
     const empty = el('div', 'empty'); empty.textContent = 'Brak zdjęć';
     gal.appendChild(empty);
@@ -275,8 +293,45 @@ function openPlace(place) {
       gal.appendChild(b);
     });
   }
+
+  await checkVisitedStatus(place.id);
   openModal('place-modal');
 }
+
+async function checkVisitedStatus(placeId) {
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) return;
+  
+  const { data } = await sb.from('visits').select('id').eq('place_id', placeId).eq('user_id', user.id).maybeSingle();
+  isVisited = !!data;
+  updateVisitedButton();
+}
+
+function updateVisitedButton() {
+  const btn = $('btn-visited');
+  if (isVisited) {
+    btn.textContent = '✓ Odwiedzone (kliknij by usunąć)';
+    btn.classList.add('btn--ghost');
+  } else {
+    btn.textContent = 'Odwiedziłem to miejsce';
+    btn.classList.remove('btn--ghost');
+  }
+}
+
+$('btn-visited').addEventListener('click', async () => {
+  if (!currentPlace) return;
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) return;
+
+  if (isVisited) {
+    await sb.from('visits').delete().eq('place_id', currentPlace.id).eq('user_id', user.id);
+    isVisited = false;
+  } else {
+    await sb.from('visits').insert({ place_id: currentPlace.id, user_id: user.id });
+    isVisited = true;
+  }
+  updateVisitedButton();
+});
 
 function openLightbox(idx) {
   if (!currentGallery.length) return;
@@ -407,23 +462,9 @@ function openEditor(place) {
   $('editor-msg').className = 'msg';
   $('editor-delete').classList.toggle('hidden', !place);
 
-  const template = place
-    ? {
-        title: place.title,
-        category: place.category || 'inne',
-        description: place.description || '',
-        latitude: place.latitude,
-        longitude: place.longitude,
-        images: place.images || []
-      }
-    : {
-        title: 'Nowe miejsce',
-        category: 'inne',
-        description: 'Opis miejsca…',
-        latitude: 50.0647,
-        longitude: 19.9450,
-        images: []
-      };
+    const template = place
+      ? { title: place.title, category: place.category || 'inne', description: place.description || '', entry_info: place.entry_info || '', latitude: place.latitude, longitude: place.longitude, images: place.images || [] }
+      : { title: 'Nowe miejsce', category: 'inne', description: 'Opis...', entry_info: 'Jak wejść...', latitude: 50.0647, longitude: 19.9450, images: [] };
 
   $('editor-json').value = JSON.stringify(template, null, 2);
   openModal('editor-modal');
@@ -451,6 +492,7 @@ $('editor-save').addEventListener('click', async () => {
     title: data.title,
     category: data.category || 'inne',
     description: data.description || '',
+    entry_info: data.entry_info || '',
     latitude: data.latitude,
     longitude: data.longitude,
     images: data.images || []
@@ -512,6 +554,40 @@ function escapeHtml(s = '') {
   }[c]));
 }
 function escapeAttr(s = '') { return escapeHtml(s); }
+
+$('username-row').style.display = 'block'; 
+
+$('profile-btn').addEventListener('click', async () => {
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) return;
+  const { data: profile } = await sb.from('profiles').select('*').eq('id', user.id).single();
+  if (profile) {
+    $('profile-username').value = profile.username || '';
+    $('profile-avatar').value = profile.avatar_url || '';
+    openModal('profile-modal');
+  }
+});
+
+$('profile-save').addEventListener('click', async () => {
+  const msg = $('profile-msg');
+  msg.className = 'msg';
+  const username = $('profile-username').value.trim();
+  const avatar_url = $('profile-avatar').value.trim();
+  
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) return;
+
+  const { error } = await sb.from('profiles').update({ username, avatar_url }).eq('id', user.id);
+  if (error) {
+    msg.className = 'msg msg--error';
+    msg.textContent = 'Błąd zapisu: ' + error.message;
+    return;
+  }
+  msg.className = 'msg msg--ok';
+  msg.textContent = 'Zapisano profil.';
+  $('profile-initial').textContent = (username || '?')[0].toUpperCase();
+  setTimeout(() => closeModal('profile-modal'), 1000);
+});
 
 (async function start() {
   applyTheme(document.documentElement.getAttribute('data-theme') || 'light');

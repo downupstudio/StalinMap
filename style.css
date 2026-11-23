@@ -294,3 +294,13 @@ strong { font-weight: 500; }
 .editor-hint { font-size: .72rem; line-height: 1.6; opacity: .7;
   margin-bottom: 16px; padding: 12px 14px; background: var(--bg-subtle);
   border-left: 2px solid var(--fg); }
+
+#profile-btn {
+  border-radius: 50%;
+  background: var(--fg);
+  color: var(--bg);
+}
+#btn-visited {
+  width: 100%;
+  margin-top: 10px;
+}

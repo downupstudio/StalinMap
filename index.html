@@ -25,6 +25,9 @@
   <div class="nav__actions">
     <button id="theme-toggle" class="theme-toggle" aria-label="Zmień motyw">
       <span id="theme-icon">☾</span>
+    <button id="profile-btn" class="theme-toggle hidden" aria-label="Profil" style="font-weight: 500;">
+      <span id="profile-initial">?</span>
+    </button>
     </button>
     <button id="logout-btn" class="btn btn--small hidden">Wyloguj</button>
   </div>
@@ -43,6 +46,10 @@
       </div>
 
       <form id="auth-form" class="form form--bare">
+        <div class="form-row" id="username-row" style="display:none;">
+          <label class="form-label" for="auth-username">Nazwa użytkownika</label>
+          <input class="form-input" id="auth-username" type="text" autocomplete="username">
+        </div>
         <div class="form-row">
           <label class="form-label" for="auth-email">E-mail</label>
           <input class="form-input" id="auth-email" type="email" required autocomplete="email">
@@ -114,7 +121,12 @@
     </header>
     <div class="modal__body" id="place-body">
       <div class="place__meta" id="place-meta"></div>
+      <div id="place-entry-wrap" style="margin-bottom: 20px; display:none;">
+        <div class="section__title" style="margin-bottom: 8px;">Wejście</div>
+        <p class="place__desc" id="place-entry-info" style="margin-bottom: 0;"></p>
+      </div>
       <p class="place__desc" id="place-desc"></p>
+    <button class="btn btn--small" id="btn-visited" style="margin-bottom: 20px;">Odwiedziłem to miejsce</button>
       <div class="photo-grid" id="place-gallery"></div>
     </div>
   </div>
@@ -186,6 +198,30 @@
     <button class="lightbox__nav" id="lb-prev">‹</button>
     <div class="lightbox__stage"><img class="lightbox__img" id="lb-img" alt=""></div>
     <button class="lightbox__nav" id="lb-next">›</button>
+  </div>
+</div>
+
+<div class="modal" id="profile-modal" data-open="false">
+  <div class="modal__backdrop" data-close="profile-modal"></div>
+  <div class="modal__panel">
+    <header class="modal__head">
+      <h2 class="modal__title">Mój Profil</h2>
+      <button class="modal__close" data-close="profile-modal">Zamknij ✕</button>
+    </header>
+    <div class="modal__body">
+      <div class="form-row">
+        <label class="form-label">Nazwa użytkownika</label>
+        <input class="form-input" id="profile-username">
+      </div>
+      <div class="form-row">
+        <label class="form-label">Avatar (URL)</label>
+        <input class="form-input" id="profile-avatar" placeholder="https://...">
+      </div>
+      <div class="msg" id="profile-msg"></div>
+      <div class="form-actions">
+        <button class="btn" id="profile-save">Zapisz</button>
+      </div>
+    </div>
   </div>
 </div>
 
