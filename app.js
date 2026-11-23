@@ -189,24 +189,90 @@ async function openProfile(userId) {
   $('profile-name-display').textContent = profile.username || 'User';
 
   const actions = $('profile-actions'); actions.innerHTML = '';
+  
   if (userId === myProfile.id) {
-    const btn = el('button', 'btn btn--small btn--ghost'); btn.textContent = 'Edytuj profil'; btn.onclick = openEditProfile; actions.appendChild(btn);
+    const btn = el('button', 'btn btn--small btn--ghost'); 
+    btn.textContent = 'Edytuj profil'; 
+    btn.onclick = openEditProfile; 
+    actions.appendChild(btn);
   } else {
     const { data: f } = await sb.from('friendships').select('*').or(`and(user1_id.eq.${myProfile.id},user2_id.eq.${userId}),and(user1_id.eq.${userId},user2_id.eq.${myProfile.id})`).maybeSingle();
-    const btn = el('button', 'btn btn--small');
-    if (f) { btn.textContent = 'Usuń znajomego'; btn.className = 'btn btn--small btn--danger'; btn.onclick = async () => { await sb.from('friendships').delete().eq('id', f.id); openProfile(userId); }; }
-    else { btn.textContent = 'Dodaj znajomego'; btn.onclick = async () => { await sb.from('friendships').insert({ user1_id: myProfile.id, user2_id: userId }); openProfile(userId); }; }
-    actions.appendChild(btn);
+    
+    if (f) {
+      if (f.status === 'accepted') {
+        const btn = el('button', 'btn btn--small btn--danger'); 
+        btn.textContent = 'Usuń znajomego'; 
+        btn.onclick = async () => { await sb.from('friendships').delete().eq('id', f.id); openProfile(userId); };
+        actions.appendChild(btn);
+      } else if (f.user1_id === myProfile.id) {
+        const btn = el('button', 'btn btn--small btn--ghost'); 
+        btn.textContent = 'Zaproszenie wysłane'; 
+        btn.disabled = true;
+        btn.style.opacity = '0.5';
+        btn.style.cursor = 'not-allowed';
+        actions.appendChild(btn);
+      } else if (f.user2_id === myProfile.id) {
+        const btn = el('button', 'btn btn--small'); 
+        btn.textContent = 'Akceptuj zaproszenie'; 
+        btn.onclick = async () => { await sb.from('friendships').update({ status: 'accepted' }).eq('id', f.id); openProfile(userId); };
+        
+        const rej = el('button', 'btn btn--small btn--danger'); 
+        rej.textContent = 'Odrzuć'; 
+        rej.onclick = async () => { await sb.from('friendships').delete().eq('id', f.id); openProfile(userId); };
+        
+        actions.appendChild(btn); actions.appendChild(rej);
+      }
+    } else {
+      const btn = el('button', 'btn btn--small'); 
+      btn.textContent = 'Dodaj do znajomych'; 
+      btn.onclick = async () => { await sb.from('friendships').insert({ user1_id: myProfile.id, user2_id: userId, status: 'pending' }); openProfile(userId); };
+      actions.appendChild(btn);
+    }
   }
 
-  const { data: friends } = await sb.from('friendships').select(`*, user1:profiles!friendships_user1_id_fkey(id, username, avatar_url), user2:profiles!friendships_user2_id_fkey(id, username, avatar_url)`).or(`user1_id.eq.${userId},user2_id.eq.${userId}`);
+  if (userId === myProfile.id) {
+    const { data: reqs } = await sb.from('friendships')
+      .select('*, sender:profiles!friendships_user1_id_fkey(id, username, avatar_url)')
+      .eq('user2_id', myProfile.id)
+      .eq('status', 'pending');
+    
+    const reqList = $('incoming-requests-list');
+    reqList.innerHTML = '';
+    $('incoming-requests-wrap').style.display = reqs?.length ? 'block' : 'none';
+    
+    if (reqs) {
+      reqs.forEach(r => {
+        const li = el('li');
+        li.innerHTML = `<div class="sidebar-avatar">${r.sender.avatar_url ? `<img src="${r.sender.avatar_url}">` : (r.sender.username || '?')[0].toUpperCase()}</div><span style="flex:1; font-size:0.8rem;">${escapeHtml(r.sender.username)}</span>`;
+        
+        const acc = el('button', 'btn btn--small'); acc.textContent = '✓'; acc.title = 'Akceptuj';
+        acc.onclick = async () => { await sb.from('friendships').update({ status: 'accepted' }).eq('id', r.id); openProfile(myProfile.id); };
+        
+        const rej = el('button', 'btn btn--small btn--danger'); rej.textContent = '✕'; rej.title = 'Odrzuć';
+        rej.onclick = async () => { await sb.from('friendships').delete().eq('id', r.id); openProfile(myProfile.id); };
+        
+        li.appendChild(acc); li.appendChild(rej);
+        reqList.appendChild(li);
+      });
+    }
+  } else {
+    $('incoming-requests-wrap').style.display = 'none';
+  }
+
+  const { data: friends } = await sb.from('friendships')
+    .select(`*, user1:profiles!friendships_user1_id_fkey(id, username, avatar_url), user2:profiles!friendships_user2_id_fkey(id, username, avatar_url)`)
+    .or(`user1_id.eq.${userId},user2_id.eq.${userId}`)
+    .eq('status', 'accepted');
+    
   const fList = $('friends-list'); fList.innerHTML = ''; let fCount = 0;
-  friends?.forEach(f => {
-    const fp = f.user1_id === userId ? f.user2 : f.user1; fCount++;
-    const li = el('li');
-    li.innerHTML = `<div class="sidebar-avatar">${fp.avatar_url?`<img src="${fp.avatar_url}">`:(fp.username||'?')[0].toUpperCase()}</div><span style="cursor:pointer" onclick="openProfile('${fp.id}')">${escapeHtml(fp.username||'User')}</span>`;
-    fList.appendChild(li);
-  });
+  if (friends) {
+    friends.forEach(f => {
+      const fp = f.user1_id === userId ? f.user2 : f.user1; fCount++;
+      const li = el('li');
+      li.innerHTML = `<div class="sidebar-avatar">${fp.avatar_url?`<img src="${fp.avatar_url}">`:(fp.username||'?')[0].toUpperCase()}</div><span style="cursor:pointer" onclick="openProfile('${fp.id}')">${escapeHtml(fp.username||'User')}</span>`;
+      fList.appendChild(li);
+    });
+  }
   $('profile-friends-count').textContent = `${fCount} znajomych`;
 
   const { data: visits } = await sb.from('visits').select('places(title)').eq('user_id', userId);
