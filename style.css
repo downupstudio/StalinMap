@@ -170,7 +170,6 @@ strong { font-weight: 500; }
 .map-marker {
   width: 14px; height: 14px; background: var(--fg);
   border: 2px solid var(--bg); cursor: pointer;
-  transition: transform .15s;
 }
 .map-marker:hover { transform: scale(1.4); }
 .marker-tooltip {
