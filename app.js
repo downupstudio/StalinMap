@@ -28,15 +28,17 @@ $('theme-icon').textContent =
 
 function getMapStyle(theme) {
   const name = theme === 'dark' ? 'dark_all' : 'light_all';
+  const apiKey = 'cb1_5ejj_1_a029a23b6e7d50c753228df3'; 
+
   return {
     version: 8,
     sources: {
       base: {
         type: 'raster',
         tiles: [
-          `https://a.basemaps.cartocdn.com/${name}/{z}/{x}/{y}.png`,
-          `https://b.basemaps.cartocdn.com/${name}/{z}/{x}/{y}.png`,
-          `https://c.basemaps.cartocdn.com/${name}/{z}/{x}/{y}.png`,
+          `https://a.basemaps.cartocdn.com/${name}/{z}/{x}/{y}.png?key=${apiKey}`,
+          `https://b.basemaps.cartocdn.com/${name}/{z}/{x}/{y}.png?key=${apiKey}`,
+          `https://c.basemaps.cartocdn.com/${name}/{z}/{x}/{y}.png?key=${apiKey}`,
         ],
         tileSize: 256,
         attribution: '© OpenStreetMap © CARTO'
