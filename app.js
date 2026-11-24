@@ -456,7 +456,36 @@ function renderAvatarHtml(avatarUrl, username) {
 async function openProfile(userId) {
   show('profile');
   currentProfileId = userId;
-  const { data: profile } = await sb.from('profiles').select('*').eq('id', userId).single();
+  const isOwnProfile = userId === myProfile.id;
+
+  const [
+    { data: profile },
+    { data: visits },
+    { data: friends },
+    { data: posts },
+    extraSocial
+  ] = await Promise.all([
+    sb.from('profiles').select('*').eq('id', userId).single(),
+    sb.from('visits').select('place_id').eq('user_id', userId),
+    sb.from('friendships')
+      .select('*, user1:profiles!friendships_user1_id_fkey(id, username, avatar_url), user2:profiles!friendships_user2_id_fkey(id, username, avatar_url)')
+      .or(`user1_id.eq.${userId},user2_id.eq.${userId}`)
+      .eq('status', 'accepted'),
+    sb.from('wall_posts')
+      .select('*, author:profiles!wall_posts_author_id_fkey(id, username, avatar_url)')
+      .eq('target_id', userId)
+      .order('created_at', { ascending: false }),
+    isOwnProfile
+      ? sb.from('friendships')
+          .select('*, sender:profiles!friendships_user1_id_fkey(id, username, avatar_url)')
+          .eq('user2_id', myProfile.id)
+          .eq('status', 'pending')
+      : sb.from('friendships')
+          .select('*')
+          .or(`and(user1_id.eq.${myProfile.id},user2_id.eq.${userId}),and(user1_id.eq.${userId},user2_id.eq.${myProfile.id})`)
+          .maybeSingle()
+  ]);
+
   if (!profile) return;
 
   $('profile-avatar-display').innerHTML = renderAvatarHtml(profile.avatar_url, profile.username);
@@ -465,18 +494,13 @@ async function openProfile(userId) {
   const actions = $('profile-actions');
   actions.innerHTML = '';
 
-  if (userId === myProfile.id) {
+  if (isOwnProfile) {
     const btn = el('button', 'btn btn--small btn--ghost');
     btn.textContent = 'Edytuj profil';
     btn.onclick = openEditProfile;
     actions.appendChild(btn);
   } else {
-    const { data: f } = await sb
-      .from('friendships')
-      .select('*')
-      .or(`and(user1_id.eq.${myProfile.id},user2_id.eq.${userId}),and(user1_id.eq.${userId},user2_id.eq.${myProfile.id})`)
-      .maybeSingle();
-
+    const f = extraSocial.data;
     if (f) {
       if (f.status === 'accepted') {
         const btn = el('button', 'btn btn--small btn--danger');
@@ -522,13 +546,8 @@ async function openProfile(userId) {
     }
   }
 
-  if (userId === myProfile.id) {
-    const { data: reqs } = await sb
-      .from('friendships')
-      .select('*, sender:profiles!friendships_user1_id_fkey(id, username, avatar_url)')
-      .eq('user2_id', myProfile.id)
-      .eq('status', 'pending');
-
+  if (isOwnProfile) {
+    const reqs = extraSocial.data;
     const reqList = $('incoming-requests-list');
     reqList.innerHTML = '';
     $('incoming-requests-wrap').style.display = reqs?.length ? 'block' : 'none';
@@ -565,12 +584,6 @@ async function openProfile(userId) {
     $('incoming-requests-wrap').style.display = 'none';
   }
 
-  const { data: friends } = await sb
-    .from('friendships')
-    .select('*, user1:profiles!friendships_user1_id_fkey(id, username, avatar_url), user2:profiles!friendships_user2_id_fkey(id, username, avatar_url)')
-    .or(`user1_id.eq.${userId},user2_id.eq.${userId}`)
-    .eq('status', 'accepted');
-
   const fList = $('friends-list');
   fList.innerHTML = '';
   let fCount = 0;
@@ -592,28 +605,25 @@ async function openProfile(userId) {
     fList.innerHTML = '<li class="empty">Brak znajomych</li>';
   }
 
-  const { data: visits } = await sb
-    .from('visits')
-    .select('place_id, places(id, title, category, description, entry_info, latitude, longitude, images)')
-    .eq('user_id', userId);
-
+  const placesById = new Map(currentPlaces.map((p) => [p.id, p]));
   const vList = $('visited-list');
   vList.innerHTML = '';
   let vCount = 0;
 
   (visits || []).forEach((v) => {
-    if (!v.places) return;
+    const place = placesById.get(v.place_id);
+    if (!place) return;
     vCount++;
     const li = el('li');
     const btn = el('button', 'visited-link');
-    btn.textContent = v.places.title;
+    btn.textContent = place.title;
     btn.onclick = () => {
       show('map');
       initMapIfNeeded();
-      if (map && typeof v.places.longitude === 'number' && typeof v.places.latitude === 'number') {
-        map.flyTo({ center: [v.places.longitude, v.places.latitude], zoom: 14 });
+      if (map && typeof place.longitude === 'number' && typeof place.latitude === 'number') {
+        map.flyTo({ center: [place.longitude, place.latitude], zoom: 14 });
       }
-      openPlace(v.places);
+      openPlace(place);
     };
     li.appendChild(btn);
     vList.appendChild(li);
@@ -624,12 +634,6 @@ async function openProfile(userId) {
   }
 
   $('profile-stats').textContent = `${fCount} znajomych • ${vCount} odwiedzonych`;
-
-  const { data: posts } = await sb
-    .from('wall_posts')
-    .select('*, author:profiles!wall_posts_author_id_fkey(id, username, avatar_url)')
-    .eq('target_id', userId)
-    .order('created_at', { ascending: false });
 
   const feed = $('wall-feed');
   feed.innerHTML = '';
