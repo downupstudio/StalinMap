@@ -1,384 +1,991 @@
 const sb = supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
 const $ = (id) => document.getElementById(id);
-const el = (tag, cls) => { const n = document.createElement(tag); if (cls) n.className = cls; return n; };
+const el = (tag, cls) => {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  return n;
+};
 
-let map, markers = [], currentPlaces = [], currentProfile = null, myProfile = null;
-let currentFilterCat = 'all', currentSearch = '';
-let editingPlaceId = null, currentGallery = [], currentGalleryIdx = 0;
-let currentPlace = null, isVisited = false, currentProfileId = null;
+let map = null;
+let markers = [];
+let currentPlaces = [];
+let myVisitedIds = new Set();
+let currentProfile = null;
+let myProfile = null;
+let currentFilterCat = 'all';
+let currentSearch = '';
+let editingPlaceId = null;
+let currentGallery = [];
+let currentGalleryIdx = 0;
+let currentPlace = null;
+let isVisited = false;
+let currentProfileId = null;
+let authMode = 'login';
 
-// motyw
+function escapeHtml(s = '') {
+  return String(s).replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  }[c]));
+}
+
+function escapeAttr(s = '') {
+  return escapeHtml(s);
+}
+
+function safeUrl(url) {
+  if (!url) return '';
+  try {
+    const parsed = new URL(url.trim());
+    return (parsed.protocol === 'http:' || parsed.protocol === 'https:') ? parsed.href : '';
+  } catch {
+    return '';
+  }
+}
+
 function applyTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme);
   localStorage.setItem('theme', theme);
   $('theme-icon').textContent = theme === 'dark' ? '☀' : '☾';
   if (map) map.setStyle(getMapStyle(theme));
 }
+
 $('theme-toggle').addEventListener('click', () => {
   applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
 });
 applyTheme(document.documentElement.getAttribute('data-theme') || 'light');
 
-// mapa
 function getMapStyle(theme) {
   const name = theme === 'dark' ? 'dark_all' : 'light_all';
-  const apiKey = 'cb1_5ejj_1_a029a23b6e7d50c753228df3'; 
-  
+  const apiKey = window.MAP_CONFIG?.cartoKey || '';
+
   return {
-    version: 8, 
-    sources: { 
-      base: { 
-        type: 'raster', 
+    version: 8,
+    sources: {
+      base: {
+        type: 'raster',
         tiles: [
           `https://a.basemaps.cartocdn.com/${name}/{z}/{x}/{y}.png?key=${apiKey}`,
           `https://b.basemaps.cartocdn.com/${name}/{z}/{x}/{y}.png?key=${apiKey}`,
           `https://c.basemaps.cartocdn.com/${name}/{z}/{x}/{y}.png?key=${apiKey}`
-        ], 
-        tileSize: 256, 
-        attribution: '© OSM © CARTO' 
-      } 
+        ],
+        tileSize: 256,
+        attribution: '© OSM © CARTO'
+      }
     },
     layers: [{ id: 'base', type: 'raster', source: 'base' }]
   };
 }
+
 function initMapIfNeeded() {
-  if (map) { map.resize(); return; }
-  map = new maplibregl.Map({ container: 'map', style: getMapStyle(document.documentElement.getAttribute('data-theme')), center: [19.9450, 50.0647], zoom: 11 });
+  if (map) {
+    map.resize();
+    return;
+  }
+  const center = window.MAP_CONFIG?.center || [19.4560, 51.7592];
+  const zoom = window.MAP_CONFIG?.zoom || 12;
+
+  map = new maplibregl.Map({
+    container: 'map',
+    style: getMapStyle(document.documentElement.getAttribute('data-theme')),
+    center,
+    zoom
+  });
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
-  map.on('style.load', () => { if (currentPlaces.length) renderMarkers(currentPlaces); });
+  map.on('style.load', () => {
+    renderSidebar();
+  });
 }
-function clearMarkers() { markers.forEach(m => m.marker.remove()); markers = []; }
+
+function clearMarkers() {
+  markers.forEach((m) => m.marker.remove());
+  markers = [];
+}
+
 function renderMarkers(places) {
+  if (!map) return;
   clearMarkers();
-  places.forEach(place => {
-    const mEl = el('button', 'map-marker');
-    const marker = new maplibregl.Marker({ element: mEl }).setLngLat([place.longitude, place.latitude]).addTo(map);
+  places.forEach((place) => {
+    if (typeof place.longitude !== 'number' || typeof place.latitude !== 'number') return;
+    const isPlaceVisited = myVisitedIds.has(place.id);
+    const mEl = el('button', 'map-marker' + (isPlaceVisited ? ' map-marker--visited' : ''));
+    mEl.setAttribute('aria-label', place.title || 'Miejsce');
+    mEl.title = place.title || '';
+    const marker = new maplibregl.Marker({ element: mEl })
+      .setLngLat([place.longitude, place.latitude])
+      .addTo(map);
     mEl.addEventListener('click', () => openPlace(place));
     markers.push({ marker, place });
   });
 }
 
-// routing ui
+function fitMapToPlaces(places) {
+  if (!map || !places.length) return;
+  const valid = places.filter((p) => typeof p.longitude === 'number' && typeof p.latitude === 'number');
+  if (!valid.length) return;
+  if (valid.length === 1) {
+    map.flyTo({ center: [valid[0].longitude, valid[0].latitude], zoom: 13 });
+    return;
+  }
+  const bounds = new maplibregl.LngLatBounds();
+  valid.forEach((p) => bounds.extend([p.longitude, p.latitude]));
+  map.fitBounds(bounds, { padding: 60, maxZoom: 14 });
+}
+
 function show(which) {
-  ['auth', 'pending', 'map', 'profile'].forEach(v => $('view-' + v)?.classList.toggle('hidden', v !== which));
-  if (which === 'map' || which === 'profile') {
-    $('nav-profile-btn').classList.remove('hidden');
-    $('logout-btn').classList.remove('hidden');
-    if (myProfile?.role === 'admin') $('nav-admin').classList.remove('hidden');
+  ['auth', 'pending', 'map', 'profile'].forEach((v) => {
+    $('view-' + v)?.classList.toggle('hidden', v !== which);
+  });
+
+  const isAppView = which === 'map' || which === 'profile';
+  $('nav-subbar').classList.toggle('hidden', !isAppView);
+  $('nav-profile-btn').classList.toggle('hidden', !isAppView);
+  $('logout-btn').classList.toggle('hidden', !isAppView);
+
+  if (isAppView) {
+    $('nav-admin').classList.toggle('hidden', myProfile?.role !== 'admin');
+    $('nav-map-btn').classList.toggle('active', which === 'map');
+    $('nav-profile-btn').classList.toggle('btn--ghost', which !== 'profile');
   } else {
     $('nav-admin').classList.add('hidden');
-    $('nav-profile-btn').classList.add('hidden');
-    $('logout-btn').classList.add('hidden');
   }
 }
-function openModal(id) { $(id).setAttribute('data-open', 'true'); }
-function closeModal(id) { $(id).setAttribute('data-open', 'false'); }
-document.querySelectorAll('[data-close]').forEach(btn => btn.addEventListener('click', () => closeModal(btn.dataset.close)));
 
-// autoryzacja
+function openModal(id) {
+  $(id).setAttribute('data-open', 'true');
+}
+
+function closeModal(id) {
+  $(id).setAttribute('data-open', 'false');
+}
+
+document.querySelectorAll('[data-close]').forEach((btn) => {
+  btn.addEventListener('click', () => closeModal(btn.dataset.close));
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    if ($('lightbox').getAttribute('data-open') === 'true') {
+      closeModal('lightbox');
+      return;
+    }
+    document.querySelectorAll('.modal[data-open="true"]').forEach((m) => closeModal(m.id));
+  } else if ($('lightbox').getAttribute('data-open') === 'true') {
+    if (e.key === 'ArrowLeft') $('lb-prev').click();
+    if (e.key === 'ArrowRight') $('lb-next').click();
+  }
+});
+
+function setAuthMode(mode) {
+  authMode = mode;
+  const isReg = mode === 'register';
+  $('tab-auth-login').classList.toggle('active', !isReg);
+  $('tab-auth-register').classList.toggle('active', isReg);
+  $('username-row').classList.toggle('hidden', !isReg);
+  $('auth-heading').textContent = isReg ? 'Utwórz konto' : 'Zaloguj się';
+  $('btn-auth-submit').textContent = isReg ? 'Zarejestruj się' : 'Zaloguj';
+  $('auth-password').setAttribute('autocomplete', isReg ? 'new-password' : 'current-password');
+  $('auth-msg').className = 'msg';
+}
+
+$('tab-auth-login').addEventListener('click', () => setAuthMode('login'));
+$('tab-auth-register').addEventListener('click', () => setAuthMode('register'));
+
 async function checkSession() {
   const { data: { session } } = await sb.auth.getSession();
   if (!session) return show('auth');
-  loadProfileAndRoute(session.user);
+  await loadProfileAndRoute(session.user);
 }
+
 async function loadProfileAndRoute(user) {
   const { data: profile, error } = await sb.from('profiles').select('*').eq('id', user.id).single();
   if (error || !profile) return show('pending');
-  currentProfile = profile; myProfile = profile; currentProfileId = user.id;
+  currentProfile = profile;
+  myProfile = profile;
+  currentProfileId = user.id;
+
   if (profile.role === 'admin' || profile.role === 'approved_user') {
-    show('map'); initMapIfNeeded(); await loadPlaces();
-  } else show('pending');
+    show('map');
+    initMapIfNeeded();
+    await loadMyVisits();
+    await loadPlaces(true);
+  } else {
+    show('pending');
+  }
 }
+
 $('auth-form').addEventListener('submit', async (e) => {
   e.preventDefault();
-  const { error } = await sb.auth.signInWithPassword({ email: $('auth-email').value.trim(), password: $('auth-password').value });
-  if (error) { $('auth-msg').className = 'msg msg--error'; $('auth-msg').textContent = error.message; }
-  else checkSession();
+  const email = $('auth-email').value.trim();
+  const password = $('auth-password').value;
+  const username = $('auth-username').value.trim();
+
+  if (authMode === 'login') {
+    const { error } = await sb.auth.signInWithPassword({ email, password });
+    if (error) {
+      $('auth-msg').className = 'msg msg--error';
+      $('auth-msg').textContent = error.message;
+    } else {
+      await checkSession();
+    }
+  } else {
+    if (!username || username.length < 2) {
+      $('auth-msg').className = 'msg msg--error';
+      $('auth-msg').textContent = 'Podaj nazwę użytkownika (min. 2 znaki).';
+      return;
+    }
+    if (!email || password.length < 6) {
+      $('auth-msg').className = 'msg msg--error';
+      $('auth-msg').textContent = 'Podaj e-mail i hasło (min. 6 znaków).';
+      return;
+    }
+    const { error } = await sb.auth.signUp({
+      email,
+      password,
+      options: { data: { username } }
+    });
+    if (error) {
+      $('auth-msg').className = 'msg msg--error';
+      $('auth-msg').textContent = error.message;
+    } else {
+      $('auth-msg').className = 'msg msg--ok';
+      $('auth-msg').textContent = 'Konto utworzone. Poczekaj na zatwierdzenie przez administratora.';
+    }
+  }
 });
-$('btn-register').addEventListener('click', async () => {
-  const email = $('auth-email').value.trim(), password = $('auth-password').value, username = $('auth-username').value.trim();
-  if (!email || password.length < 6) { $('auth-msg').className = 'msg msg--error'; $('auth-msg').textContent = 'Podaj e-mail i hasło (min. 6 znaków).'; return; }
-  const { error } = await sb.auth.signUp({ email, password, options: { data: { username } } });
-  if (error) { $('auth-msg').className = 'msg msg--error'; $('auth-msg').textContent = error.message; }
-  else { $('auth-msg').className = 'msg msg--ok'; $('auth-msg').textContent = 'Konto utworzone. Poczekaj na zatwierdzenie.'; }
-});
-async function logout() { await sb.auth.signOut(); location.reload(); }
+
+async function logout() {
+  await sb.auth.signOut();
+  location.reload();
+}
 $('logout-btn').addEventListener('click', logout);
 $('pending-logout').addEventListener('click', logout);
 
-$('username-row').style.display = 'block';
+async function loadMyVisits() {
+  if (!myProfile) return;
+  const { data } = await sb.from('visits').select('place_id').eq('user_id', myProfile.id);
+  myVisitedIds = new Set((data || []).map((v) => v.place_id));
+}
 
-// miejsca na mapie
-async function loadPlaces() {
+async function loadPlaces(shouldFit = false) {
   const { data } = await sb.from('places').select('*').order('created_at', { ascending: false });
   currentPlaces = data || [];
-  renderMarkers(currentPlaces); renderSidebar(); renderAdminPlaces();
+  renderSidebar();
+  renderAdminPlaces();
+  if (shouldFit && currentPlaces.length) fitMapToPlaces(currentPlaces);
 }
+
 function renderSidebar() {
-  const cats = new Map(); currentPlaces.forEach(p => { const c = p.category || 'inne'; cats.set(c, (cats.get(c)||0)+1); });
-  const catList = $('category-list'); catList.innerHTML = '';
-  const allLi = el('li'); const allBtn = el('button', 'filter-btn' + (currentFilterCat==='all'?' active':''));
-  allBtn.innerHTML = `<span>Wszystkie</span><span>${currentPlaces.length}</span>`;
-  allBtn.onclick = () => { currentFilterCat='all'; renderSidebar(); }; allLi.appendChild(allBtn); catList.appendChild(allLi);
-  [...cats.entries()].sort().forEach(([cat, count]) => {
-    const li = el('li'); const btn = el('button', 'filter-btn' + (currentFilterCat===cat?' active':''));
-    btn.innerHTML = `<span>${escapeHtml(cat)}</span><span>${count}</span>`;
-    btn.onclick = () => { currentFilterCat=cat; renderSidebar(); }; li.appendChild(btn); catList.appendChild(li);
+  const cats = new Map();
+  currentPlaces.forEach((p) => {
+    const c = p.category || 'inne';
+    cats.set(c, (cats.get(c) || 0) + 1);
   });
-  const filtered = currentPlaces.filter(p => (currentFilterCat==='all'||p.category===currentFilterCat) && (!currentSearch||p.title.toLowerCase().includes(currentSearch)));
+
+  const catList = $('category-list');
+  catList.innerHTML = '';
+
+  const allLi = el('li');
+  const allBtn = el('button', 'filter-btn' + (currentFilterCat === 'all' ? ' active' : ''));
+  allBtn.innerHTML = `<span>Wszystkie</span><span>${currentPlaces.length}</span>`;
+  allBtn.onclick = () => {
+    currentFilterCat = 'all';
+    renderSidebar();
+  };
+  allLi.appendChild(allBtn);
+  catList.appendChild(allLi);
+
+  [...cats.entries()].sort().forEach(([cat, count]) => {
+    const li = el('li');
+    const btn = el('button', 'filter-btn' + (currentFilterCat === cat ? ' active' : ''));
+    btn.innerHTML = `<span>${escapeHtml(cat)}</span><span>${count}</span>`;
+    btn.onclick = () => {
+      currentFilterCat = cat;
+      renderSidebar();
+    };
+    li.appendChild(btn);
+    catList.appendChild(li);
+  });
+
+  const filtered = currentPlaces.filter((p) => {
+    const matchCat = currentFilterCat === 'all' || (p.category || 'inne') === currentFilterCat;
+    const matchSearch = !currentSearch || (p.title || '').toLowerCase().includes(currentSearch);
+    return matchCat && matchSearch;
+  });
+
+  renderMarkers(filtered);
+
   $('places-count').textContent = filtered.length;
-  const list = $('places-list'); list.innerHTML = '';
-  filtered.forEach(p => {
-    const li = el('li'); const btn = el('button');
-    btn.innerHTML = `<div style="font-weight:500">${escapeHtml(p.title)}</div><div style="font-size:0.6rem;opacity:0.5">${escapeHtml(p.category||'inne')}</div>`;
-    btn.onclick = () => { map.flyTo({center:[p.longitude,p.latitude],zoom:14}); openPlace(p); };
-    li.appendChild(btn); list.appendChild(li);
+  const list = $('places-list');
+  list.innerHTML = '';
+
+  if (!filtered.length) {
+    const emptyLi = el('li');
+    emptyLi.innerHTML = '<div class="empty" style="padding: 16px 20px;">Brak miejsc spełniających kryteria.</div>';
+    list.appendChild(emptyLi);
+    return;
+  }
+
+  filtered.forEach((p) => {
+    const li = el('li');
+    const btn = el('button');
+    const visitedBadge = myVisitedIds.has(p.id) ? ' • ✓ odwiedzone' : '';
+    btn.innerHTML = `
+      <div class="place-item__title">${escapeHtml(p.title)}</div>
+      <div class="place-item__cat">${escapeHtml(p.category || 'inne')}${visitedBadge}</div>
+    `;
+    btn.onclick = () => {
+      if (map && typeof p.longitude === 'number' && typeof p.latitude === 'number') {
+        map.flyTo({ center: [p.longitude, p.latitude], zoom: 14 });
+      }
+      openPlace(p);
+    };
+    li.appendChild(btn);
+    list.appendChild(li);
   });
 }
-$('search-input').addEventListener('input', e => { currentSearch = e.target.value.toLowerCase(); renderSidebar(); });
+
+$('search-input').addEventListener('input', (e) => {
+  currentSearch = e.target.value.toLowerCase().trim();
+  renderSidebar();
+});
 
 async function openPlace(place) {
   currentPlace = place;
-  $('place-title').textContent = place.title;
-  $('place-meta').innerHTML = `<span>${escapeHtml(place.category||'inne')}</span><span>${place.latitude.toFixed(4)}, ${place.longitude.toFixed(4)}</span>`;
-  $('place-desc').textContent = place.description || '—';
-  if (place.entry_info) { $('place-entry-wrap').style.display = 'block'; $('place-entry-info').textContent = place.entry_info; }
-  else $('place-entry-wrap').style.display = 'none';
-  
-  const gal = $('place-gallery'); gal.innerHTML = ''; currentGallery = place.images || []; currentGalleryIdx = 0;
-  if (!currentGallery.length) gal.innerHTML = '<div class="empty">Brak zdjęć</div>';
-  else currentGallery.forEach((url, i) => {
-    const b = el('button', 'photo-card'); b.innerHTML = `<img src="${escapeAttr(url)}" loading="lazy">`;
-    b.onclick = () => { currentGalleryIdx=i; updateLightbox(); $('lightbox').setAttribute('data-open','true'); }; gal.appendChild(b);
-  });
+  $('place-title').textContent = place.title || 'Bez nazwy';
+
+  const coordsText = (typeof place.latitude === 'number' && typeof place.longitude === 'number')
+    ? `${place.latitude.toFixed(4)}, ${place.longitude.toFixed(4)}`
+    : '';
+  $('place-meta').innerHTML = `<span>${escapeHtml(place.category || 'inne')}</span><span>${coordsText}</span>`;
+  $('place-desc').textContent = place.description || 'Brak opisu.';
+
+  if (place.entry_info) {
+    $('place-entry-wrap').style.display = 'block';
+    $('place-entry-info').textContent = place.entry_info;
+  } else {
+    $('place-entry-wrap').style.display = 'none';
+  }
+
+  const gal = $('place-gallery');
+  gal.innerHTML = '';
+  currentGallery = Array.isArray(place.images) ? place.images.map(safeUrl).filter(Boolean) : [];
+  currentGalleryIdx = 0;
+
+  if (!currentGallery.length) {
+    gal.innerHTML = '<div class="empty">Brak zdjęć</div>';
+  } else {
+    currentGallery.forEach((url, i) => {
+      const b = el('button', 'photo-card');
+      b.innerHTML = `<img src="${escapeAttr(url)}" alt="${escapeAttr(place.title || '')}" loading="lazy">`;
+      b.onclick = () => {
+        currentGalleryIdx = i;
+        updateLightbox();
+        openModal('lightbox');
+      };
+      gal.appendChild(b);
+    });
+  }
 
   await checkVisitedStatus(place.id);
   openModal('place-modal');
 }
+
 async function checkVisitedStatus(placeId) {
-  const { data: { user } } = await sb.auth.getUser(); if (!user) return;
-  const { data } = await sb.from('visits').select('id').eq('place_id', placeId).eq('user_id', user.id).maybeSingle();
+  if (!myProfile) return;
+  const { data } = await sb
+    .from('visits')
+    .select('id')
+    .eq('place_id', placeId)
+    .eq('user_id', myProfile.id)
+    .maybeSingle();
+
   isVisited = !!data;
+  if (isVisited) myVisitedIds.add(placeId);
+  else myVisitedIds.delete(placeId);
+
   $('btn-visited').textContent = isVisited ? '✓ Odwiedzone (kliknij by usunąć)' : 'Odwiedziłem to miejsce';
   $('btn-visited').className = isVisited ? 'btn btn--small btn--ghost' : 'btn btn--small';
 }
+
 $('btn-visited').addEventListener('click', async () => {
-  if (!currentPlace) return;
-  const { data: { user } } = await sb.auth.getUser(); if (!user) return;
-  if (isVisited) await sb.from('visits').delete().eq('place_id', currentPlace.id).eq('user_id', user.id);
-  else await sb.from('visits').insert({ place_id: currentPlace.id, user_id: user.id });
-  checkVisitedStatus(currentPlace.id);
+  if (!currentPlace || !myProfile) return;
+  if (isVisited) {
+    await sb.from('visits').delete().eq('place_id', currentPlace.id).eq('user_id', myProfile.id);
+  } else {
+    await sb.from('visits').insert({ place_id: currentPlace.id, user_id: myProfile.id });
+  }
+  await checkVisitedStatus(currentPlace.id);
+  renderSidebar();
 });
 
-// lightbox
-function updateLightbox() { $('lb-img').src = currentGallery[currentGalleryIdx]; $('lb-counter').textContent = `${currentGalleryIdx+1} / ${currentGallery.length}`; }
-$('lb-close').onclick = () => $('lightbox').setAttribute('data-open','false');
-$('lb-prev').onclick = () => { currentGalleryIdx = (currentGalleryIdx-1+currentGallery.length)%currentGallery.length; updateLightbox(); };
-$('lb-next').onclick = () => { currentGalleryIdx = (currentGalleryIdx+1)%currentGallery.length; updateLightbox(); };
+function updateLightbox() {
+  if (!currentGallery.length) return;
+  $('lb-img').src = currentGallery[currentGalleryIdx];
+  $('lb-counter').textContent = `${currentGalleryIdx + 1} / ${currentGallery.length}`;
+}
 
-// profil
+$('lb-close').onclick = () => closeModal('lightbox');
+$('lb-prev').onclick = () => {
+  if (!currentGallery.length) return;
+  currentGalleryIdx = (currentGalleryIdx - 1 + currentGallery.length) % currentGallery.length;
+  updateLightbox();
+};
+$('lb-next').onclick = () => {
+  if (!currentGallery.length) return;
+  currentGalleryIdx = (currentGalleryIdx + 1) % currentGallery.length;
+  updateLightbox();
+};
+
 $('nav-profile-btn').addEventListener('click', () => openProfile(myProfile.id));
-$('nav-map-btn').addEventListener('click', (e) => { e.preventDefault(); show('map'); if(map) map.resize(); });
+$('nav-map-btn').addEventListener('click', (e) => {
+  e.preventDefault();
+  show('map');
+  if (map) map.resize();
+});
+
+function renderAvatarHtml(avatarUrl, username) {
+  const valid = safeUrl(avatarUrl);
+  if (valid) return `<img src="${escapeAttr(valid)}" alt="">`;
+  return escapeHtml((username || '?')[0].toUpperCase());
+}
 
 async function openProfile(userId) {
-  show('profile'); currentProfileId = userId;
+  show('profile');
+  currentProfileId = userId;
   const { data: profile } = await sb.from('profiles').select('*').eq('id', userId).single();
   if (!profile) return;
 
-  $('profile-avatar-display').innerHTML = profile.avatar_url ? `<img src="${escapeAttr(profile.avatar_url)}">` : (profile.username||'?')[0].toUpperCase();
+  $('profile-avatar-display').innerHTML = renderAvatarHtml(profile.avatar_url, profile.username);
   $('profile-name-display').textContent = profile.username || 'User';
 
-  const actions = $('profile-actions'); actions.innerHTML = '';
-  
+  const actions = $('profile-actions');
+  actions.innerHTML = '';
+
   if (userId === myProfile.id) {
-    const btn = el('button', 'btn btn--small btn--ghost'); 
-    btn.textContent = 'Edytuj profil'; 
-    btn.onclick = openEditProfile; 
+    const btn = el('button', 'btn btn--small btn--ghost');
+    btn.textContent = 'Edytuj profil';
+    btn.onclick = openEditProfile;
     actions.appendChild(btn);
   } else {
-    const { data: f } = await sb.from('friendships').select('*').or(`and(user1_id.eq.${myProfile.id},user2_id.eq.${userId}),and(user1_id.eq.${userId},user2_id.eq.${myProfile.id})`).maybeSingle();
-    
+    const { data: f } = await sb
+      .from('friendships')
+      .select('*')
+      .or(`and(user1_id.eq.${myProfile.id},user2_id.eq.${userId}),and(user1_id.eq.${userId},user2_id.eq.${myProfile.id})`)
+      .maybeSingle();
+
     if (f) {
       if (f.status === 'accepted') {
-        const btn = el('button', 'btn btn--small btn--danger'); 
-        btn.textContent = 'Usuń znajomego'; 
-        btn.onclick = async () => { await sb.from('friendships').delete().eq('id', f.id); openProfile(userId); };
+        const btn = el('button', 'btn btn--small btn--danger');
+        btn.textContent = 'Usuń znajomego';
+        btn.onclick = async () => {
+          await sb.from('friendships').delete().eq('id', f.id);
+          openProfile(userId);
+        };
         actions.appendChild(btn);
       } else if (f.user1_id === myProfile.id) {
-        const btn = el('button', 'btn btn--small btn--ghost'); 
-        btn.textContent = 'Zaproszenie wysłane'; 
+        const btn = el('button', 'btn btn--small btn--ghost');
+        btn.textContent = 'Zaproszenie wysłane';
         btn.disabled = true;
         btn.style.opacity = '0.5';
         btn.style.cursor = 'not-allowed';
         actions.appendChild(btn);
       } else if (f.user2_id === myProfile.id) {
-        const btn = el('button', 'btn btn--small'); 
-        btn.textContent = 'Akceptuj zaproszenie'; 
-        btn.onclick = async () => { await sb.from('friendships').update({ status: 'accepted' }).eq('id', f.id); openProfile(userId); };
-        
-        const rej = el('button', 'btn btn--small btn--danger'); 
-        rej.textContent = 'Odrzuć'; 
-        rej.onclick = async () => { await sb.from('friendships').delete().eq('id', f.id); openProfile(userId); };
-        
-        actions.appendChild(btn); actions.appendChild(rej);
+        const btn = el('button', 'btn btn--small');
+        btn.textContent = 'Akceptuj';
+        btn.onclick = async () => {
+          await sb.from('friendships').update({ status: 'accepted' }).eq('id', f.id);
+          openProfile(userId);
+        };
+
+        const rej = el('button', 'btn btn--small btn--danger');
+        rej.textContent = 'Odrzuć';
+        rej.onclick = async () => {
+          await sb.from('friendships').delete().eq('id', f.id);
+          openProfile(userId);
+        };
+
+        actions.appendChild(btn);
+        actions.appendChild(rej);
       }
     } else {
-      const btn = el('button', 'btn btn--small'); 
-      btn.textContent = 'Dodaj do znajomych'; 
-      btn.onclick = async () => { await sb.from('friendships').insert({ user1_id: myProfile.id, user2_id: userId, status: 'pending' }); openProfile(userId); };
+      const btn = el('button', 'btn btn--small');
+      btn.textContent = 'Dodaj do znajomych';
+      btn.onclick = async () => {
+        await sb.from('friendships').insert({ user1_id: myProfile.id, user2_id: userId, status: 'pending' });
+        openProfile(userId);
+      };
       actions.appendChild(btn);
     }
   }
 
   if (userId === myProfile.id) {
-    const { data: reqs } = await sb.from('friendships')
+    const { data: reqs } = await sb
+      .from('friendships')
       .select('*, sender:profiles!friendships_user1_id_fkey(id, username, avatar_url)')
       .eq('user2_id', myProfile.id)
       .eq('status', 'pending');
-    
+
     const reqList = $('incoming-requests-list');
     reqList.innerHTML = '';
     $('incoming-requests-wrap').style.display = reqs?.length ? 'block' : 'none';
-    
-    if (reqs) {
-      reqs.forEach(r => {
-        const li = el('li');
-        li.innerHTML = `<div class="sidebar-avatar">${r.sender.avatar_url ? `<img src="${r.sender.avatar_url}">` : (r.sender.username || '?')[0].toUpperCase()}</div><span style="flex:1; font-size:0.8rem;">${escapeHtml(r.sender.username)}</span>`;
-        
-        const acc = el('button', 'btn btn--small'); acc.textContent = '✓'; acc.title = 'Akceptuj';
-        acc.onclick = async () => { await sb.from('friendships').update({ status: 'accepted' }).eq('id', r.id); openProfile(myProfile.id); };
-        
-        const rej = el('button', 'btn btn--small btn--danger'); rej.textContent = '✕'; rej.title = 'Odrzuć';
-        rej.onclick = async () => { await sb.from('friendships').delete().eq('id', r.id); openProfile(myProfile.id); };
-        
-        li.appendChild(acc); li.appendChild(rej);
-        reqList.appendChild(li);
-      });
-    }
+
+    (reqs || []).forEach((r) => {
+      if (!r.sender) return;
+      const li = el('li');
+      li.innerHTML = `
+        <div class="sidebar-avatar">${renderAvatarHtml(r.sender.avatar_url, r.sender.username)}</div>
+        <span style="flex:1; font-size:0.8rem;">${escapeHtml(r.sender.username || 'User')}</span>
+      `;
+
+      const acc = el('button', 'btn btn--small');
+      acc.textContent = '✓';
+      acc.title = 'Akceptuj';
+      acc.onclick = async () => {
+        await sb.from('friendships').update({ status: 'accepted' }).eq('id', r.id);
+        openProfile(myProfile.id);
+      };
+
+      const rej = el('button', 'btn btn--small btn--danger');
+      rej.textContent = '✕';
+      rej.title = 'Odrzuć';
+      rej.onclick = async () => {
+        await sb.from('friendships').delete().eq('id', r.id);
+        openProfile(myProfile.id);
+      };
+
+      li.appendChild(acc);
+      li.appendChild(rej);
+      reqList.appendChild(li);
+    });
   } else {
     $('incoming-requests-wrap').style.display = 'none';
   }
 
-  const { data: friends } = await sb.from('friendships')
-    .select(`*, user1:profiles!friendships_user1_id_fkey(id, username, avatar_url), user2:profiles!friendships_user2_id_fkey(id, username, avatar_url)`)
+  const { data: friends } = await sb
+    .from('friendships')
+    .select('*, user1:profiles!friendships_user1_id_fkey(id, username, avatar_url), user2:profiles!friendships_user2_id_fkey(id, username, avatar_url)')
     .or(`user1_id.eq.${userId},user2_id.eq.${userId}`)
     .eq('status', 'accepted');
-    
-  const fList = $('friends-list'); fList.innerHTML = ''; let fCount = 0;
-  if (friends) {
-    friends.forEach(f => {
-      const fp = f.user1_id === userId ? f.user2 : f.user1; fCount++;
-      const li = el('li');
-      li.innerHTML = `<div class="sidebar-avatar">${fp.avatar_url?`<img src="${fp.avatar_url}">`:(fp.username||'?')[0].toUpperCase()}</div><span style="cursor:pointer" onclick="openProfile('${fp.id}')">${escapeHtml(fp.username||'User')}</span>`;
-      fList.appendChild(li);
-    });
+
+  const fList = $('friends-list');
+  fList.innerHTML = '';
+  let fCount = 0;
+
+  (friends || []).forEach((f) => {
+    const fp = f.user1_id === userId ? f.user2 : f.user1;
+    if (!fp) return;
+    fCount++;
+    const li = el('li');
+    li.innerHTML = `<div class="sidebar-avatar">${renderAvatarHtml(fp.avatar_url, fp.username)}</div>`;
+    const nameBtn = el('button');
+    nameBtn.textContent = fp.username || 'User';
+    nameBtn.onclick = () => openProfile(fp.id);
+    li.appendChild(nameBtn);
+    fList.appendChild(li);
+  });
+
+  if (!fCount) {
+    fList.innerHTML = '<li class="empty">Brak znajomych</li>';
   }
-  $('profile-friends-count').textContent = `${fCount} znajomych`;
 
-  const { data: visits } = await sb.from('visits').select('places(title)').eq('user_id', userId);
-  const vList = $('visited-list'); vList.innerHTML = '';
-  visits?.forEach(v => { if (v.places) { const li = el('li'); li.textContent = v.places.title; vList.appendChild(li); } });
+  const { data: visits } = await sb
+    .from('visits')
+    .select('place_id, places(id, title, category, description, entry_info, latitude, longitude, images)')
+    .eq('user_id', userId);
 
-  const { data: posts } = await sb.from('wall_posts').select('*, author:profiles!wall_posts_author_id_fkey(username, avatar_url)').eq('target_id', userId).order('created_at', { ascending: false });
-  const feed = $('wall-feed'); feed.innerHTML = '';
-  posts?.forEach(p => {
-    const d = new Date(p.created_at).toLocaleString();
-    const a = p.author.avatar_url ? `<img src="${p.author.avatar_url}">` : (p.author.username||'?')[0].toUpperCase();
+  const vList = $('visited-list');
+  vList.innerHTML = '';
+  let vCount = 0;
+
+  (visits || []).forEach((v) => {
+    if (!v.places) return;
+    vCount++;
+    const li = el('li');
+    const btn = el('button', 'visited-link');
+    btn.textContent = v.places.title;
+    btn.onclick = () => {
+      show('map');
+      initMapIfNeeded();
+      if (map && typeof v.places.longitude === 'number' && typeof v.places.latitude === 'number') {
+        map.flyTo({ center: [v.places.longitude, v.places.latitude], zoom: 14 });
+      }
+      openPlace(v.places);
+    };
+    li.appendChild(btn);
+    vList.appendChild(li);
+  });
+
+  if (!vCount) {
+    vList.innerHTML = '<li class="empty">Brak odwiedzonych miejsc</li>';
+  }
+
+  $('profile-stats').textContent = `${fCount} znajomych • ${vCount} odwiedzonych`;
+
+  const { data: posts } = await sb
+    .from('wall_posts')
+    .select('*, author:profiles!wall_posts_author_id_fkey(id, username, avatar_url)')
+    .eq('target_id', userId)
+    .order('created_at', { ascending: false });
+
+  const feed = $('wall-feed');
+  feed.innerHTML = '';
+
+  if (!posts?.length) {
+    feed.innerHTML = '<div class="empty">Brak wpisów na ścianie.</div>';
+    return;
+  }
+
+  posts.forEach((p) => {
+    const authorName = p.author?.username || 'User';
+    const d = new Date(p.created_at).toLocaleString('pl-PL');
     const div = el('div', 'wall-post');
-    div.innerHTML = `<div class="wall-post__header"><div class="sidebar-avatar">${a}</div><div><div class="wall-post__author">${escapeHtml(p.author.username||'User')}</div><div class="wall-post__date">${d}</div></div></div><div class="wall-post__content">${escapeHtml(p.content)}</div>`;
+    div.innerHTML = `
+      <div class="wall-post__header">
+        <div class="sidebar-avatar">${renderAvatarHtml(p.author?.avatar_url, authorName)}</div>
+        <div>
+          <div class="wall-post__author">${escapeHtml(authorName)}</div>
+          <div class="wall-post__date">${escapeHtml(d)}</div>
+        </div>
+      </div>
+      <div class="wall-post__content">${escapeHtml(p.content)}</div>
+    `;
     feed.appendChild(div);
   });
 }
 
 $('wall-submit').addEventListener('click', async () => {
-  const content = $('wall-input').value.trim(); if (!content) return;
+  const content = $('wall-input').value.trim();
+  if (!content || !myProfile || !currentProfileId) return;
   $('wall-input').value = '';
-  await sb.from('wall_posts').insert({ author_id: myProfile.id, target_id: currentProfileId, content });
+  await sb.from('wall_posts').insert({
+    author_id: myProfile.id,
+    target_id: currentProfileId,
+    content
+  });
   openProfile(currentProfileId);
 });
 
-// wyszukiwarka
-$('global-search').addEventListener('keydown', async (e) => {
-  if (e.key !== 'Enter') return;
+let searchTimer = null;
+$('global-search').addEventListener('input', (e) => {
+  clearTimeout(searchTimer);
   const q = e.target.value.trim();
-  if (q.length < 2) return;
-  const { data } = await sb.from('profiles').select('id').ilike('username', `%${q}%`).limit(1);
-  if (data?.length) { openProfile(data[0].id); e.target.value = ''; } else alert('Nie znaleziono użytkownika');
+  const resBox = $('search-results');
+
+  if (q.length < 2) {
+    resBox.classList.add('hidden');
+    resBox.innerHTML = '';
+    return;
+  }
+
+  searchTimer = setTimeout(async () => {
+    const { data } = await sb
+      .from('profiles')
+      .select('id, username, avatar_url')
+      .ilike('username', `%${q}%`)
+      .limit(5);
+
+    resBox.innerHTML = '';
+    if (!data?.length) {
+      resBox.innerHTML = '<li><button type="button" disabled style="opacity:0.6">Brak wyników</button></li>';
+      resBox.classList.remove('hidden');
+      return;
+    }
+
+    data.forEach((u) => {
+      const li = el('li');
+      const btn = el('button');
+      btn.type = 'button';
+      btn.innerHTML = `
+        <div class="sidebar-avatar" style="width:26px;height:26px;font-size:0.75rem;">${renderAvatarHtml(u.avatar_url, u.username)}</div>
+        <span>${escapeHtml(u.username || 'User')}</span>
+      `;
+      btn.onclick = () => {
+        $('global-search').value = '';
+        resBox.classList.add('hidden');
+        openProfile(u.id);
+      };
+      li.appendChild(btn);
+      resBox.appendChild(li);
+    });
+    resBox.classList.remove('hidden');
+  }, 250);
 });
 
-// edycja profilu
+document.addEventListener('click', (e) => {
+  if (!$('global-search-wrap')?.contains(e.target)) {
+    $('search-results')?.classList.add('hidden');
+  }
+});
+
 function openEditProfile() {
-  $('edit-username').value = myProfile.username || ''; $('edit-avatar').value = myProfile.avatar_url || '';
+  $('edit-username').value = myProfile.username || '';
+  $('edit-avatar').value = myProfile.avatar_url || '';
+  $('edit-msg').className = 'msg';
   openModal('profile-edit-modal');
 }
+
 $('edit-save').addEventListener('click', async () => {
-  const username = $('edit-username').value.trim(), avatar_url = $('edit-avatar').value.trim();
-  const { error } = await sb.from('profiles').update({ username, avatar_url }).eq('id', myProfile.id);
-  if (error) { $('edit-msg').className='msg msg--error'; $('edit-msg').textContent=error.message; }
-  else { myProfile.username=username; myProfile.avatar_url=avatar_url; closeModal('profile-edit-modal'); openProfile(myProfile.id); }
+  const username = $('edit-username').value.trim();
+  const rawAvatar = $('edit-avatar').value.trim();
+
+  if (!username || username.length < 2) {
+    $('edit-msg').className = 'msg msg--error';
+    $('edit-msg').textContent = 'Nazwa użytkownika musi mieć min. 2 znaki.';
+    return;
+  }
+
+  if (rawAvatar && !safeUrl(rawAvatar)) {
+    $('edit-msg').className = 'msg msg--error';
+    $('edit-msg').textContent = 'Podaj poprawny link zaczynający się od https://';
+    return;
+  }
+
+  const avatar_url = rawAvatar ? safeUrl(rawAvatar) : '';
+  const { error } = await sb
+    .from('profiles')
+    .update({ username, avatar_url })
+    .eq('id', myProfile.id);
+
+  if (error) {
+    $('edit-msg').className = 'msg msg--error';
+    $('edit-msg').textContent = error.message;
+  } else {
+    myProfile.username = username;
+    myProfile.avatar_url = avatar_url;
+    closeModal('profile-edit-modal');
+    openProfile(myProfile.id);
+  }
 });
 
-// admin
-$('nav-admin').addEventListener('click', async (e) => { e.preventDefault(); openModal('admin-modal'); renderAdminUsers(); renderAdminPlaces(); });
-$('admin-tabs').addEventListener('click', e => { const t=e.target.closest('.tab'); if(!t) return; document.querySelectorAll('#admin-tabs .tab').forEach(x=>x.classList.toggle('active',x===t)); $('tab-users').classList.toggle('hidden',t.dataset.tab!=='users'); $('tab-places').classList.toggle('hidden',t.dataset.tab!=='places'); });
+$('nav-admin').addEventListener('click', async (e) => {
+  e.preventDefault();
+  openModal('admin-modal');
+  renderAdminUsers();
+  renderAdminPlaces();
+});
+
+$('admin-tabs').addEventListener('click', (e) => {
+  const t = e.target.closest('.tab');
+  if (!t) return;
+  document.querySelectorAll('#admin-tabs .tab').forEach((x) => x.classList.toggle('active', x === t));
+  $('tab-users').classList.toggle('hidden', t.dataset.tab !== 'users');
+  $('tab-places').classList.toggle('hidden', t.dataset.tab !== 'places');
+});
+
 async function renderAdminUsers() {
   const { data } = await sb.from('profiles').select('*').order('created_at');
-  const pending = data.filter(u=>u.role==='pending_user'), approved = data.filter(u=>u.role!=='pending_user');
-  $('pending-users').innerHTML = pending.length?'':'<li class="empty">Brak</li>';
-  pending.forEach(u => {
-    const li = el('li'); li.innerHTML = `<span class="email" style="flex:1">${u.email}</span>`;
-    const a = el('button','btn btn--small'); a.textContent='Zatwierdź'; a.onclick=async()=>{ await sb.from('profiles').update({role:'approved_user'}).eq('id',u.id); renderAdminUsers(); };
-    const r = el('button','btn btn--small btn--danger'); r.textContent='Odrzuć'; r.onclick=async()=>{ if(!confirm('Usunąć?'))return; await sb.from('profiles').delete().eq('id',u.id); renderAdminUsers(); };
-    li.append(a,r); $('pending-users').appendChild(li);
+  const users = data || [];
+  const pending = users.filter((u) => u.role === 'pending_user');
+  const approved = users.filter((u) => u.role !== 'pending_user');
+
+  $('pending-users').innerHTML = pending.length ? '' : '<li class="empty">Brak oczekujących</li>';
+  pending.forEach((u) => {
+    const li = el('li');
+    li.innerHTML = `<span class="email">${escapeHtml(u.username ? `${u.username} (${u.email})` : u.email)}</span>`;
+    const actions = el('div', 'admin-row-actions');
+
+    const a = el('button', 'btn btn--small');
+    a.textContent = 'Zatwierdź';
+    a.onclick = async () => {
+      await sb.from('profiles').update({ role: 'approved_user' }).eq('id', u.id);
+      renderAdminUsers();
+    };
+
+    const r = el('button', 'btn btn--small btn--danger');
+    r.textContent = 'Odrzuć';
+    r.onclick = async () => {
+      if (!confirm('Usunąć użytkownika?')) return;
+      await sb.from('profiles').delete().eq('id', u.id);
+      renderAdminUsers();
+    };
+
+    actions.append(a, r);
+    li.appendChild(actions);
+    $('pending-users').appendChild(li);
   });
+
   $('approved-users').innerHTML = '';
-  approved.forEach(u => {
-    const li = el('li'); li.innerHTML = `<span class="email" style="flex:1">${u.email} (${u.role})</span>`;
+  approved.forEach((u) => {
+    const li = el('li');
+    li.innerHTML = `<span class="email">${escapeHtml(u.email)} (${escapeHtml(u.role)})</span>`;
     if (u.id !== myProfile.id) {
-      const d = el('button','btn btn--small btn--ghost'); d.textContent = u.role==='admin'?'Zdegraduj':'Zablokuj';
-      d.onclick=async()=>{ await sb.from('profiles').update({role:u.role==='admin'?'approved_user':'pending_user'}).eq('id',u.id); renderAdminUsers(); };
-      li.appendChild(d);
+      const actions = el('div', 'admin-row-actions');
+      const d = el('button', 'btn btn--small btn--ghost');
+      d.textContent = u.role === 'admin' ? 'Zdegraduj' : 'Zablokuj';
+      d.onclick = async () => {
+        await sb
+          .from('profiles')
+          .update({ role: u.role === 'admin' ? 'approved_user' : 'pending_user' })
+          .eq('id', u.id);
+        renderAdminUsers();
+      };
+      actions.appendChild(d);
+      li.appendChild(actions);
     }
     $('approved-users').appendChild(li);
   });
 }
+
 function renderAdminPlaces() {
-  const l = $('admin-places-list'); l.innerHTML = '';
-  currentPlaces.forEach(p => { const li = el('li'); li.innerHTML = `<span style="flex:1">${p.title}</span>`; const e = el('button','btn btn--small btn--ghost'); e.textContent='Edytuj'; e.onclick=()=>openEditor(p); li.appendChild(e); l.appendChild(li); });
+  const l = $('admin-places-list');
+  l.innerHTML = currentPlaces.length ? '' : '<li class="empty">Brak miejsc</li>';
+  currentPlaces.forEach((p) => {
+    const li = el('li');
+    li.innerHTML = `<span>${escapeHtml(p.title)}</span>`;
+    const actions = el('div', 'admin-row-actions');
+    const e = el('button', 'btn btn--small btn--ghost');
+    e.textContent = 'Edytuj';
+    e.onclick = () => openEditor(p);
+    actions.appendChild(e);
+    li.appendChild(actions);
+    l.appendChild(li);
+  });
 }
+
+function syncFormToJson() {
+  let currentImages = [];
+  try {
+    const parsed = JSON.parse($('editor-json').value);
+    if (Array.isArray(parsed.images)) currentImages = parsed.images;
+  } catch {}
+
+  const obj = {
+    title: $('ed-title').value.trim(),
+    category: $('ed-category').value.trim() || 'inne',
+    description: $('ed-desc').value,
+    entry_info: $('ed-entry').value,
+    latitude: parseFloat($('ed-lat').value) || 0,
+    longitude: parseFloat($('ed-lng').value) || 0,
+    images: currentImages
+  };
+  $('editor-json').value = JSON.stringify(obj, null, 2);
+}
+
+function syncJsonToForm() {
+  try {
+    const d = JSON.parse($('editor-json').value);
+    $('ed-title').value = d.title || '';
+    $('ed-category').value = d.category || 'inne';
+    $('ed-desc').value = d.description || '';
+    $('ed-entry').value = d.entry_info || '';
+    $('ed-lat').value = d.latitude ?? '';
+    $('ed-lng').value = d.longitude ?? '';
+  } catch {}
+}
+
+['ed-title', 'ed-category', 'ed-desc', 'ed-entry', 'ed-lat', 'ed-lng'].forEach((id) => {
+  $(id).addEventListener('input', syncFormToJson);
+});
+$('editor-json').addEventListener('input', syncJsonToForm);
+
+$('ed-use-center').addEventListener('click', () => {
+  if (!map) return;
+  const c = map.getCenter();
+  $('ed-lat').value = c.lat.toFixed(6);
+  $('ed-lng').value = c.lng.toFixed(6);
+  syncFormToJson();
+});
+
 $('btn-new-place').addEventListener('click', () => openEditor(null));
+
 function openEditor(place) {
-  editingPlaceId = place ? place.id : null; $('editor-title').textContent = place ? 'Edytuj' : 'Nowe';
+  editingPlaceId = place ? place.id : null;
+  $('editor-title').textContent = place ? 'Edytuj miejsce' : 'Nowe miejsce';
   $('editor-delete').classList.toggle('hidden', !place);
-  const t = place ? { title:place.title, category:place.category, description:place.description, entry_info:place.entry_info, latitude:place.latitude, longitude:place.longitude, images:place.images } : { title:'Nowe', category:'inne', description:'', entry_info:'', latitude:50.06, longitude:19.94, images:[] };
-  $('editor-json').value = JSON.stringify(t, null, 2); openModal('editor-modal');
+  $('editor-msg').className = 'msg';
+
+  const defaultCenter = map ? map.getCenter() : { lat: 51.7592, lng: 19.4560 };
+  const t = place
+    ? {
+        title: place.title,
+        category: place.category,
+        description: place.description,
+        entry_info: place.entry_info,
+        latitude: place.latitude,
+        longitude: place.longitude,
+        images: place.images || []
+      }
+    : {
+        title: '',
+        category: 'inne',
+        description: '',
+        entry_info: '',
+        latitude: Number(defaultCenter.lat.toFixed(6)),
+        longitude: Number(defaultCenter.lng.toFixed(6)),
+        images: []
+      };
+
+  $('editor-json').value = JSON.stringify(t, null, 2);
+  syncJsonToForm();
+  openModal('editor-modal');
 }
+
 $('editor-save').addEventListener('click', async () => {
-  try { const d = JSON.parse($('editor-json').value);
-    const p = { title:d.title, category:d.category||'inne', description:d.description||'', entry_info:d.entry_info||'', latitude:d.latitude, longitude:d.longitude, images:d.images||[] };
-    const q = editingPlaceId ? sb.from('places').update(p).eq('id',editingPlaceId) : sb.from('places').insert(p);
-    const { error } = await q; if (error) throw error;
-    closeModal('editor-modal'); loadPlaces();
-  } catch(e) { $('editor-msg').className='msg msg--error'; $('editor-msg').textContent=e.message; }
-});
-$('editor-delete').addEventListener('click', async () => { if(!editingPlaceId||!confirm('Usunąć?'))return; await sb.from('places').delete().eq('id',editingPlaceId); closeModal('editor-modal'); loadPlaces(); });
-$('editor-upload').addEventListener('change', async e => {
-  const files = [...e.target.files]; if(!files.length) return;
-  let d; try { d = JSON.parse($('editor-json').value); } catch { return; }
-  if(!d.images) d.images = [];
-  for (const f of files) {
-    const path = `places/${Date.now()}-${f.name.replace(/[^\w.\-]+/g,'_')}`;
-    const { error } = await sb.storage.from('place-images').upload(path, f);
-    if(!error) { const { data } = sb.storage.from('place-images').getPublicUrl(path); d.images.push(data.publicUrl); }
+  try {
+    const d = JSON.parse($('editor-json').value);
+    if (!d.title || !d.title.trim()) {
+      throw new Error('Podaj nazwę obiektu.');
+    }
+    const p = {
+      title: d.title.trim(),
+      category: (d.category || 'inne').trim(),
+      description: d.description || '',
+      entry_info: d.entry_info || '',
+      latitude: Number(d.latitude),
+      longitude: Number(d.longitude),
+      images: Array.isArray(d.images) ? d.images : []
+    };
+    const q = editingPlaceId
+      ? sb.from('places').update(p).eq('id', editingPlaceId)
+      : sb.from('places').insert(p);
+
+    const { error } = await q;
+    if (error) throw error;
+    closeModal('editor-modal');
+    await loadPlaces(false);
+  } catch (e) {
+    $('editor-msg').className = 'msg msg--error';
+    $('editor-msg').textContent = e.message;
   }
-  $('editor-json').value = JSON.stringify(d, null, 2); e.target.value='';
 });
 
-function escapeHtml(s='') { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-function escapeAttr(s='') { return escapeHtml(s); }
+$('editor-delete').addEventListener('click', async () => {
+  if (!editingPlaceId || !confirm('Usunąć to miejsce?')) return;
+  await sb.from('places').delete().eq('id', editingPlaceId);
+  closeModal('editor-modal');
+  await loadPlaces(false);
+});
 
-// start
+$('editor-upload').addEventListener('change', async (e) => {
+  const files = [...e.target.files];
+  if (!files.length) return;
+  let d;
+  try {
+    d = JSON.parse($('editor-json').value);
+  } catch {
+    return;
+  }
+  if (!Array.isArray(d.images)) d.images = [];
+
+  for (const f of files) {
+    const path = `places/${Date.now()}-${f.name.replace(/[^\w.\-]+/g, '_')}`;
+    const { error } = await sb.storage.from('place-images').upload(path, f);
+    if (!error) {
+      const { data } = sb.storage.from('place-images').getPublicUrl(path);
+      d.images.push(data.publicUrl);
+    }
+  }
+  $('editor-json').value = JSON.stringify(d, null, 2);
+  e.target.value = '';
+});
+
 (async function start() {
   await checkSession();
-  sb.auth.onAuthStateChange((_e, s) => { if(!s) show('auth'); });
+  sb.auth.onAuthStateChange((_e, s) => {
+    if (!s) show('auth');
+  });
 })();
