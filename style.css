@@ -579,6 +579,7 @@ button { font: inherit; color: inherit; background: none; cursor: pointer; text-
 .modal__body {
   padding: 24px;
   overflow-y: auto;
+  overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
 }
 
@@ -962,6 +963,7 @@ button { font: inherit; color: inherit; background: none; cursor: pointer; text-
 .admin-users li span.email {
   flex: 1;
   min-width: 0;
+  max-width: 100%;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1192,6 +1194,14 @@ button { font: inherit; color: inherit; background: none; cursor: pointer; text-
     gap: 10px;
     padding: 12px;
   }
+
+.admin-places li span,
+.admin-users li span.email {
+  width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
 
   .admin-row-actions {
     width: 100%;
