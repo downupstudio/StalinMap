@@ -1195,13 +1195,13 @@ button { font: inherit; color: inherit; background: none; cursor: pointer; text-
     padding: 12px;
   }
 
-.admin-places li span,
-.admin-users li span.email {
-  width: 100%;
-  white-space: normal;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-}
+  .admin-places li span,
+  .admin-users li span.email {
+    width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
 
   .admin-row-actions {
     width: 100%;
