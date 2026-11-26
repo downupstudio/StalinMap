@@ -15,9 +15,11 @@ let markers = [];
 let currentPlaces = [];
 let allProfilesMap = new Map();
 let myVisitedIds = new Set();
+let myWishlistIds = new Set();
 let currentProfile = null;
 let myProfile = null;
 let currentFilterCat = 'all';
+let currentFilterStatus = 'all';
 let currentSearch = '';
 let editingPlaceId = null;
 let isProposalMode = false;
@@ -25,6 +27,7 @@ let currentGallery = [];
 let currentGalleryIdx = 0;
 let currentPlace = null;
 let isVisited = false;
+let isWishlisted = false;
 let currentProfileId = null;
 let authMode = 'login';
 let initialRouteSlug = getSlugFromPath();
@@ -145,8 +148,11 @@ function renderMarkers(places) {
   clearMarkers();
   places.forEach((place) => {
     if (typeof place.longitude !== 'number' || typeof place.latitude !== 'number') return;
-    const isPlaceVisited = myVisitedIds.has(place.id);
-    const mEl = el('button', 'map-marker' + (isPlaceVisited ? ' map-marker--visited' : ''));
+    let statusClass = '';
+    if (myVisitedIds.has(place.id)) statusClass = ' map-marker--visited';
+    else if (myWishlistIds.has(place.id)) statusClass = ' map-marker--wishlist';
+
+    const mEl = el('button', 'map-marker' + statusClass);
     mEl.setAttribute('aria-label', place.title || 'Miejsce');
     mEl.title = place.title || '';
     const marker = new maplibregl.Marker({ element: mEl })
@@ -220,7 +226,7 @@ document.addEventListener('keydown', (e) => {
       return;
     }
     document.querySelectorAll('.modal[data-open="true"]').forEach((m) => closeModal(m.id));
-  } else if ($('lightbox').getAttribute('data-open="true') === 'true') {
+  } else if ($('lightbox').getAttribute('data-open') === 'true') {
     if (e.key === 'ArrowLeft') $('lb-prev').click();
     if (e.key === 'ArrowRight') $('lb-next').click();
   }
@@ -266,7 +272,7 @@ async function loadProfileAndRoute(user) {
   currentProfileId = user.id;
 
   if (['admin', 'moderator', 'approved_user'].includes(profile.role)) {
-    await loadMyVisits();
+    await loadMyStatuses();
     await loadPlaces(false);
 
     const slugToOpen = initialRouteSlug || getSlugFromPath();
@@ -344,10 +350,14 @@ async function logout() {
 $('logout-btn').addEventListener('click', logout);
 $('pending-logout').addEventListener('click', logout);
 
-async function loadMyVisits() {
+async function loadMyStatuses() {
   if (!myProfile) return;
-  const { data } = await sb.from('visits').select('place_id').eq('user_id', myProfile.id);
-  myVisitedIds = new Set((data || []).map((v) => v.place_id));
+  const [{ data: visits }, { data: wishes }] = await Promise.all([
+    sb.from('visits').select('place_id').eq('user_id', myProfile.id),
+    sb.from('wishlist').select('place_id').eq('user_id', myProfile.id)
+  ]);
+  myVisitedIds = new Set((visits || []).map((v) => v.place_id));
+  myWishlistIds = new Set((wishes || []).map((w) => w.place_id));
 }
 
 async function loadPlaces(shouldFit = false) {
@@ -361,6 +371,26 @@ async function loadPlaces(shouldFit = false) {
 
 function renderSidebar() {
   const approvedPlaces = getApprovedPlaces();
+
+  const statusList = $('status-filter-list');
+  statusList.innerHTML = '';
+  [
+    ['all', 'Wszystkie'],
+    ['visited', 'Odwiedzone'],
+    ['wishlist', 'Chcę odwiedzić'],
+    ['unvisited', 'Nieodwiedzone']
+  ].forEach(([val, label]) => {
+    const li = el('li');
+    const btn = el('button', 'status-pill' + (currentFilterStatus === val ? ' active' : ''));
+    btn.textContent = label;
+    btn.onclick = () => {
+      currentFilterStatus = val;
+      renderSidebar();
+    };
+    li.appendChild(btn);
+    statusList.appendChild(li);
+  });
+
   const cats = new Map();
   approvedPlaces.forEach((p) => {
     const c = p.category || 'inne';
@@ -395,7 +425,11 @@ function renderSidebar() {
   const filtered = approvedPlaces.filter((p) => {
     const matchCat = currentFilterCat === 'all' || (p.category || 'inne') === currentFilterCat;
     const matchSearch = !currentSearch || (p.title || '').toLowerCase().includes(currentSearch);
-    return matchCat && matchSearch;
+    let matchStatus = true;
+    if (currentFilterStatus === 'visited') matchStatus = myVisitedIds.has(p.id);
+    else if (currentFilterStatus === 'wishlist') matchStatus = myWishlistIds.has(p.id);
+    else if (currentFilterStatus === 'unvisited') matchStatus = !myVisitedIds.has(p.id);
+    return matchCat && matchSearch && matchStatus;
   });
 
   renderMarkers(filtered);
@@ -414,10 +448,13 @@ function renderSidebar() {
   filtered.forEach((p) => {
     const li = el('li');
     const btn = el('button');
-    const visitedBadge = myVisitedIds.has(p.id) ? ' • ✓ odwiedzone' : '';
+    let badge = '';
+    if (myVisitedIds.has(p.id)) badge = ' • ✓ odwiedzone';
+    else if (myWishlistIds.has(p.id)) badge = ' • ★ chcę odwiedzić';
+
     btn.innerHTML = `
       <div class="place-item__title">${escapeHtml(p.title)}</div>
-      <div class="place-item__cat">${escapeHtml(p.category || 'inne')}${visitedBadge}</div>
+      <div class="place-item__cat">${escapeHtml(p.category || 'inne')}${badge}</div>
     `;
     btn.onclick = () => {
       if (map && typeof p.longitude === 'number' && typeof p.latitude === 'number') {
@@ -472,36 +509,165 @@ async function openPlace(place) {
     });
   }
 
-  await checkVisitedStatus(place.id);
+  $('place-comment-input').value = '';
+  $('place-comments-list').innerHTML = '<div class="empty">Ładowanie komentarzy...</div>';
   openModal('place-modal');
+
+  await Promise.all([
+    checkPlaceStatuses(place.id),
+    loadPlaceComments(place.id)
+  ]);
 }
 
-async function checkVisitedStatus(placeId) {
-  if (!myProfile) return;
-  const { data } = await sb
-    .from('visits')
-    .select('id')
-    .eq('place_id', placeId)
-    .eq('user_id', myProfile.id)
-    .maybeSingle();
+function updatePlaceStatusButtons() {
+  $('btn-visited').textContent = isVisited ? '✓ Odwiedzone (kliknij by usunąć)' : 'Odwiedziłem to miejsce';
+  $('btn-visited').className = isVisited ? 'btn btn--small btn--ghost' : 'btn btn--small';
 
-  isVisited = !!data;
+  $('btn-wishlist').textContent = isWishlisted ? '★ Na liście do odwiedzenia' : '★ Chcę odwiedzić';
+  $('btn-wishlist').className = isWishlisted ? 'btn btn--small btn--wishlist-active' : 'btn btn--small btn--ghost';
+}
+
+async function checkPlaceStatuses(placeId) {
+  if (!myProfile) return;
+  const [{ data: visitData }, { data: wishData }] = await Promise.all([
+    sb.from('visits').select('id').eq('place_id', placeId).eq('user_id', myProfile.id).maybeSingle(),
+    sb.from('wishlist').select('id').eq('place_id', placeId).eq('user_id', myProfile.id).maybeSingle()
+  ]);
+
+  isVisited = !!visitData;
+  isWishlisted = !!wishData;
+
   if (isVisited) myVisitedIds.add(placeId);
   else myVisitedIds.delete(placeId);
 
-  $('btn-visited').textContent = isVisited ? '✓ Odwiedzone (kliknij by usunąć)' : 'Odwiedziłem to miejsce';
-  $('btn-visited').className = isVisited ? 'btn btn--small btn--ghost' : 'btn btn--small';
+  if (isWishlisted) myWishlistIds.add(placeId);
+  else myWishlistIds.delete(placeId);
+
+  updatePlaceStatusButtons();
 }
 
 $('btn-visited').addEventListener('click', async () => {
   if (!currentPlace || !myProfile) return;
+  const placeId = currentPlace.id;
+
   if (isVisited) {
-    await sb.from('visits').delete().eq('place_id', currentPlace.id).eq('user_id', myProfile.id);
+    await sb.from('visits').delete().eq('place_id', placeId).eq('user_id', myProfile.id);
+    isVisited = false;
+    myVisitedIds.delete(placeId);
   } else {
-    await sb.from('visits').insert({ place_id: currentPlace.id, user_id: myProfile.id });
+    const ops = [sb.from('visits').insert({ place_id: placeId, user_id: myProfile.id })];
+    if (isWishlisted) {
+      ops.push(sb.from('wishlist').delete().eq('place_id', placeId).eq('user_id', myProfile.id));
+    }
+    await Promise.all(ops);
+    isVisited = true;
+    isWishlisted = false;
+    myVisitedIds.add(placeId);
+    myWishlistIds.delete(placeId);
   }
-  await checkVisitedStatus(currentPlace.id);
+
+  updatePlaceStatusButtons();
   renderSidebar();
+});
+
+$('btn-wishlist').addEventListener('click', async () => {
+  if (!currentPlace || !myProfile) return;
+  const placeId = currentPlace.id;
+
+  if (isWishlisted) {
+    await sb.from('wishlist').delete().eq('place_id', placeId).eq('user_id', myProfile.id);
+    isWishlisted = false;
+    myWishlistIds.delete(placeId);
+  } else {
+    const ops = [sb.from('wishlist').insert({ place_id: placeId, user_id: myProfile.id })];
+    if (isVisited) {
+      ops.push(sb.from('visits').delete().eq('place_id', placeId).eq('user_id', myProfile.id));
+    }
+    await Promise.all(ops);
+    isWishlisted = true;
+    isVisited = false;
+    myWishlistIds.add(placeId);
+    myVisitedIds.delete(placeId);
+  }
+
+  updatePlaceStatusButtons();
+  renderSidebar();
+});
+
+async function loadPlaceComments(placeId) {
+  const { data: comments } = await sb
+    .from('place_comments')
+    .select('*, author:profiles!place_comments_author_id_fkey(id, username, avatar_url)')
+    .eq('place_id', placeId)
+    .order('created_at', { ascending: false });
+
+  const list = $('place-comments-list');
+  list.innerHTML = '';
+
+  if (!comments?.length) {
+    list.innerHTML = '<div class="empty">Brak komentarzy pod tym miejscem.</div>';
+    return;
+  }
+
+  const isStaff = myProfile?.role === 'admin' || myProfile?.role === 'moderator';
+
+  comments.forEach((c) => {
+    const authorName = c.author?.username || 'User';
+    const d = new Date(c.created_at).toLocaleString('pl-PL');
+    const canDelete = c.author_id === myProfile?.id || isStaff;
+
+    const div = el('div', 'wall-post');
+    div.innerHTML = `
+      <div class="wall-post__header">
+        <div class="sidebar-avatar">${renderAvatarHtml(c.author?.avatar_url, authorName)}</div>
+        <div>
+          <button type="button" class="wall-post__author">${escapeHtml(authorName)}</button>
+          <div class="wall-post__date">${escapeHtml(d)}</div>
+        </div>
+      </div>
+      <div class="wall-post__content">${escapeHtml(c.content)}</div>
+    `;
+
+    const authorBtn = div.querySelector('.wall-post__author');
+    if (c.author?.username || c.author?.id) {
+      authorBtn.onclick = () => {
+        closeModal('place-modal');
+        openProfile(c.author.username || c.author.id, true);
+      };
+    }
+
+    if (canDelete) {
+      const delBtn = el('button', 'comment-delete-btn');
+      delBtn.type = 'button';
+      delBtn.textContent = '✕';
+      delBtn.title = 'Usuń komentarz';
+      delBtn.onclick = async () => {
+        await sb.from('place_comments').delete().eq('id', c.id);
+        await loadPlaceComments(placeId);
+      };
+      div.querySelector('.wall-post__header').appendChild(delBtn);
+    }
+
+    list.appendChild(div);
+  });
+}
+
+$('place-comment-submit').addEventListener('click', async () => {
+  const content = $('place-comment-input').value.trim();
+  if (!content || !currentPlace || !myProfile) return;
+
+  const btn = $('place-comment-submit');
+  btn.disabled = true;
+  $('place-comment-input').value = '';
+
+  await sb.from('place_comments').insert({
+    place_id: currentPlace.id,
+    author_id: myProfile.id,
+    content
+  });
+
+  btn.disabled = false;
+  await loadPlaceComments(currentPlace.id);
 });
 
 function updateLightbox() {
@@ -572,11 +738,13 @@ async function openProfile(identifier, pushUrl = true) {
 
   const [
     { data: visits },
+    { data: wishes },
     { data: friends },
     { data: posts },
     extraSocial
   ] = await Promise.all([
     sb.from('visits').select('place_id').eq('user_id', userId),
+    sb.from('wishlist').select('place_id').eq('user_id', userId),
     sb.from('friendships')
       .select('*, user1:profiles!friendships_user1_id_fkey(id, username, avatar_url), user2:profiles!friendships_user2_id_fkey(id, username, avatar_url)')
       .or(`user1_id.eq.${userId},user2_id.eq.${userId}`)
@@ -726,6 +894,7 @@ async function openProfile(identifier, pushUrl = true) {
   }
 
   const placesById = new Map(getApprovedPlaces().map((p) => [p.id, p]));
+
   const vList = $('visited-list');
   vList.innerHTML = '';
   let vCount = 0;
@@ -753,7 +922,34 @@ async function openProfile(identifier, pushUrl = true) {
     vList.innerHTML = '<li class="empty">Brak odwiedzonych miejsc</li>';
   }
 
-  $('profile-stats').textContent = `${fCount} znajomych • ${vCount} odwiedzonych`;
+  const wList = $('wishlist-list');
+  wList.innerHTML = '';
+  let wCount = 0;
+
+  (wishes || []).forEach((w) => {
+    const place = placesById.get(w.place_id);
+    if (!place) return;
+    wCount++;
+    const li = el('li');
+    const btn = el('button', 'visited-link');
+    btn.textContent = place.title;
+    btn.onclick = () => {
+      show('map', true);
+      initMapIfNeeded();
+      if (map && typeof place.longitude === 'number' && typeof place.latitude === 'number') {
+        map.flyTo({ center: [place.longitude, place.latitude], zoom: 14 });
+      }
+      openPlace(place);
+    };
+    li.appendChild(btn);
+    wList.appendChild(li);
+  });
+
+  if (!wCount) {
+    wList.innerHTML = '<li class="empty">Brak planowanych miejsc</li>';
+  }
+
+  $('profile-stats').textContent = `${fCount} znajomych • ${vCount} odwiedzonych • ${wCount} do odwiedzenia`;
 
   const feed = $('wall-feed');
   feed.innerHTML = '';
