@@ -9,12 +9,14 @@ const el = (tag, cls) => {
 let map = null;
 let markers = [];
 let currentPlaces = [];
+let allProfilesMap = new Map();
 let myVisitedIds = new Set();
 let currentProfile = null;
 let myProfile = null;
 let currentFilterCat = 'all';
 let currentSearch = '';
 let editingPlaceId = null;
+let isProposalMode = false;
 let currentGallery = [];
 let currentGalleryIdx = 0;
 let currentPlace = null;
@@ -44,6 +46,14 @@ function safeUrl(url) {
   } catch {
     return '';
   }
+}
+
+function getApprovedPlaces() {
+  return currentPlaces.filter((p) => (p.status || 'approved') === 'approved');
+}
+
+function getPendingPlaces() {
+  return currentPlaces.filter((p) => p.status === 'pending');
 }
 
 function applyTheme(theme) {
@@ -147,10 +157,12 @@ function show(which) {
 
   if (isAppView) {
     $('nav-admin').classList.toggle('hidden', myProfile?.role !== 'admin');
+    $('nav-propose').classList.toggle('hidden', myProfile?.role !== 'moderator');
     $('nav-map-btn').classList.toggle('active', which === 'map');
     $('nav-profile-btn').classList.toggle('btn--ghost', which !== 'profile');
   } else {
     $('nav-admin').classList.add('hidden');
+    $('nav-propose').classList.add('hidden');
   }
 }
 
@@ -207,7 +219,7 @@ async function loadProfileAndRoute(user) {
   myProfile = profile;
   currentProfileId = user.id;
 
-  if (profile.role === 'admin' || profile.role === 'approved_user') {
+  if (['admin', 'moderator', 'approved_user'].includes(profile.role)) {
     show('map');
     initMapIfNeeded();
     await loadMyVisits();
@@ -227,7 +239,9 @@ $('auth-form').addEventListener('submit', async (e) => {
     const { error } = await sb.auth.signInWithPassword({ email, password });
     if (error) {
       $('auth-msg').className = 'msg msg--error';
-      $('auth-msg').textContent = error.message;
+      $('auth-msg').textContent = error.message === 'Email not confirmed'
+        ? 'Adres e-mail nie został jeszcze potwierdzony.'
+        : error.message;
     } else {
       await checkSession();
     }
@@ -242,14 +256,19 @@ $('auth-form').addEventListener('submit', async (e) => {
       $('auth-msg').textContent = 'Podaj e-mail i hasło (min. 6 znaków).';
       return;
     }
-    const { error } = await sb.auth.signUp({
+    const { data, error } = await sb.auth.signUp({
       email,
       password,
-      options: { data: { username } }
+      options: {
+        data: { username },
+        emailRedirectTo: window.location.origin + window.location.pathname
+      }
     });
     if (error) {
       $('auth-msg').className = 'msg msg--error';
       $('auth-msg').textContent = error.message;
+    } else if (data?.session) {
+      await loadProfileAndRoute(data.session.user);
     } else {
       $('auth-msg').className = 'msg msg--ok';
       $('auth-msg').textContent = 'Konto utworzone. Poczekaj na zatwierdzenie przez administratora.';
@@ -273,14 +292,16 @@ async function loadMyVisits() {
 async function loadPlaces(shouldFit = false) {
   const { data } = await sb.from('places').select('*').order('created_at', { ascending: false });
   currentPlaces = data || [];
+  const approved = getApprovedPlaces();
   renderSidebar();
   renderAdminPlaces();
-  if (shouldFit && currentPlaces.length) fitMapToPlaces(currentPlaces);
+  if (shouldFit && approved.length) fitMapToPlaces(approved);
 }
 
 function renderSidebar() {
+  const approvedPlaces = getApprovedPlaces();
   const cats = new Map();
-  currentPlaces.forEach((p) => {
+  approvedPlaces.forEach((p) => {
     const c = p.category || 'inne';
     cats.set(c, (cats.get(c) || 0) + 1);
   });
@@ -290,7 +311,7 @@ function renderSidebar() {
 
   const allLi = el('li');
   const allBtn = el('button', 'filter-btn' + (currentFilterCat === 'all' ? ' active' : ''));
-  allBtn.innerHTML = `<span>Wszystkie</span><span>${currentPlaces.length}</span>`;
+  allBtn.innerHTML = `<span>Wszystkie</span><span>${approvedPlaces.length}</span>`;
   allBtn.onclick = () => {
     currentFilterCat = 'all';
     renderSidebar();
@@ -310,7 +331,7 @@ function renderSidebar() {
     catList.appendChild(li);
   });
 
-  const filtered = currentPlaces.filter((p) => {
+  const filtered = approvedPlaces.filter((p) => {
     const matchCat = currentFilterCat === 'all' || (p.category || 'inne') === currentFilterCat;
     const matchSearch = !currentSearch || (p.title || '').toLowerCase().includes(currentSearch);
     return matchCat && matchSearch;
@@ -445,6 +466,10 @@ $('nav-map-btn').addEventListener('click', (e) => {
   e.preventDefault();
   show('map');
   if (map) map.resize();
+});
+$('nav-propose').addEventListener('click', (e) => {
+  e.preventDefault();
+  openEditor(null, true);
 });
 
 function renderAvatarHtml(avatarUrl, username) {
@@ -605,7 +630,7 @@ async function openProfile(userId) {
     fList.innerHTML = '<li class="empty">Brak znajomych</li>';
   }
 
-  const placesById = new Map(currentPlaces.map((p) => [p.id, p]));
+  const placesById = new Map(getApprovedPlaces().map((p) => [p.id, p]));
   const vList = $('visited-list');
   vList.innerHTML = '';
   let vCount = 0;
@@ -768,7 +793,7 @@ $('edit-save').addEventListener('click', async () => {
 $('nav-admin').addEventListener('click', async (e) => {
   e.preventDefault();
   openModal('admin-modal');
-  renderAdminUsers();
+  await renderAdminUsers();
   renderAdminPlaces();
 });
 
@@ -783,6 +808,8 @@ $('admin-tabs').addEventListener('click', (e) => {
 async function renderAdminUsers() {
   const { data } = await sb.from('profiles').select('*').order('created_at');
   const users = data || [];
+  allProfilesMap = new Map(users.map((u) => [u.id, u]));
+
   const pending = users.filter((u) => u.role === 'pending_user');
   const approved = users.filter((u) => u.role !== 'pending_user');
 
@@ -796,7 +823,7 @@ async function renderAdminUsers() {
     a.textContent = 'Zatwierdź';
     a.onclick = async () => {
       await sb.from('profiles').update({ role: 'approved_user' }).eq('id', u.id);
-      renderAdminUsers();
+      await renderAdminUsers();
     };
 
     const r = el('button', 'btn btn--small btn--danger');
@@ -804,7 +831,7 @@ async function renderAdminUsers() {
     r.onclick = async () => {
       if (!confirm('Usunąć użytkownika?')) return;
       await sb.from('profiles').delete().eq('id', u.id);
-      renderAdminUsers();
+      await renderAdminUsers();
     };
 
     actions.append(a, r);
@@ -815,38 +842,100 @@ async function renderAdminUsers() {
   $('approved-users').innerHTML = '';
   approved.forEach((u) => {
     const li = el('li');
-    li.innerHTML = `<span class="email">${escapeHtml(u.email)} (${escapeHtml(u.role)})</span>`;
-    if (u.id !== myProfile.id) {
-      const actions = el('div', 'admin-row-actions');
-      const d = el('button', 'btn btn--small btn--ghost');
-      d.textContent = u.role === 'admin' ? 'Zdegraduj' : 'Zablokuj';
-      d.onclick = async () => {
-        await sb
-          .from('profiles')
-          .update({ role: u.role === 'admin' ? 'approved_user' : 'pending_user' })
-          .eq('id', u.id);
-        renderAdminUsers();
+    const label = u.username ? `${u.username} (${u.email})` : u.email;
+    li.innerHTML = `<span class="email">${escapeHtml(label)}</span>`;
+
+    const actions = el('div', 'admin-row-actions');
+    if (u.id === myProfile.id) {
+      const selfTag = el('span');
+      selfTag.style.fontSize = '0.7rem';
+      selfTag.style.opacity = '0.6';
+      selfTag.textContent = 'ADMIN (TY)';
+      actions.appendChild(selfTag);
+    } else {
+      const select = el('select', 'role-select');
+      select.setAttribute('aria-label', 'Rola użytkownika');
+      [
+        ['approved_user', 'Użytkownik'],
+        ['moderator', 'Moderator'],
+        ['admin', 'Admin'],
+        ['pending_user', 'Zablokowany']
+      ].forEach(([val, text]) => {
+        const opt = document.createElement('option');
+        opt.value = val;
+        opt.textContent = text;
+        if (u.role === val) opt.selected = true;
+        select.appendChild(opt);
+      });
+
+      select.onchange = async () => {
+        select.disabled = true;
+        await sb.from('profiles').update({ role: select.value }).eq('id', u.id);
+        await renderAdminUsers();
       };
-      actions.appendChild(d);
-      li.appendChild(actions);
+      actions.appendChild(select);
     }
+
+    li.appendChild(actions);
     $('approved-users').appendChild(li);
   });
 }
 
 function renderAdminPlaces() {
-  const l = $('admin-places-list');
-  l.innerHTML = currentPlaces.length ? '' : '<li class="empty">Brak miejsc</li>';
-  currentPlaces.forEach((p) => {
+  const pendingList = $('admin-pending-places');
+  const approvedList = $('admin-places-list');
+  const pending = getPendingPlaces();
+  const approved = getApprovedPlaces();
+
+  pendingList.innerHTML = pending.length ? '' : '<li class="empty">Brak propozycji do zatwierdzenia</li>';
+  pending.forEach((p) => {
+    const li = el('li');
+    const author = p.created_by ? allProfilesMap.get(p.created_by) : null;
+    const authorName = author?.username || author?.email || 'Nieznany';
+
+    const info = el('div', 'admin-place-info');
+    info.innerHTML = `
+      <span>${escapeHtml(p.title)}</span>
+      <div class="admin-place-meta">${escapeHtml(p.category || 'inne')} • Autor: ${escapeHtml(authorName)}</div>
+    `;
+
+    const actions = el('div', 'admin-row-actions');
+
+    const approveBtn = el('button', 'btn btn--small');
+    approveBtn.textContent = 'Zatwierdź';
+    approveBtn.onclick = async () => {
+      await sb.from('places').update({ status: 'approved' }).eq('id', p.id);
+      await loadPlaces(false);
+    };
+
+    const editBtn = el('button', 'btn btn--small btn--ghost');
+    editBtn.textContent = 'Edytuj';
+    editBtn.onclick = () => openEditor(p, false);
+
+    const rejectBtn = el('button', 'btn btn--small btn--danger');
+    rejectBtn.textContent = 'Odrzuć';
+    rejectBtn.onclick = async () => {
+      if (!confirm('Odrzucić i usunąć propozycję?')) return;
+      await sb.from('places').delete().eq('id', p.id);
+      await loadPlaces(false);
+    };
+
+    actions.append(approveBtn, editBtn, rejectBtn);
+    li.append(info, actions);
+    pendingList.appendChild(li);
+  });
+
+  approvedList.innerHTML = approved.length ? '' : '<li class="empty">Brak miejsc</li>';
+  approved.forEach((p) => {
     const li = el('li');
     li.innerHTML = `<span>${escapeHtml(p.title)}</span>`;
     const actions = el('div', 'admin-row-actions');
     const e = el('button', 'btn btn--small btn--ghost');
     e.textContent = 'Edytuj';
-    e.onclick = () => openEditor(p);
+    e.onclick = () => openEditor(p, false);
     actions.appendChild(e);
     li.appendChild(actions);
-    l.appendChild(li);
+    approvedList.appendChild(li);
   });
 }
 
@@ -894,12 +983,22 @@ $('ed-use-center').addEventListener('click', () => {
   syncFormToJson();
 });
 
-$('btn-new-place').addEventListener('click', () => openEditor(null));
+$('btn-new-place').addEventListener('click', () => openEditor(null, false));
 
-function openEditor(place) {
+function openEditor(place, propose = false) {
+  isProposalMode = propose || myProfile?.role !== 'admin';
   editingPlaceId = place ? place.id : null;
-  $('editor-title').textContent = place ? 'Edytuj miejsce' : 'Nowe miejsce';
-  $('editor-delete').classList.toggle('hidden', !place);
+
+  if (isProposalMode) {
+    $('editor-title').textContent = 'Zaproponuj miejsce';
+    $('editor-save').textContent = 'Wyślij propozycję';
+    $('editor-delete').classList.add('hidden');
+  } else {
+    $('editor-title').textContent = place ? 'Edytuj miejsce' : 'Nowe miejsce';
+    $('editor-save').textContent = 'Zapisz';
+    $('editor-delete').classList.toggle('hidden', !place);
+  }
+
   $('editor-msg').className = 'msg';
 
   const defaultCenter = map ? map.getCenter() : { lat: 51.7592, lng: 19.4560 };
@@ -934,7 +1033,8 @@ $('editor-save').addEventListener('click', async () => {
     if (!d.title || !d.title.trim()) {
       throw new Error('Podaj nazwę obiektu.');
     }
-    const p = {
+
+    const baseData = {
       title: d.title.trim(),
       category: (d.category || 'inne').trim(),
       description: d.description || '',
@@ -943,14 +1043,32 @@ $('editor-save').addEventListener('click', async () => {
       longitude: Number(d.longitude),
       images: Array.isArray(d.images) ? d.images : []
     };
-    const q = editingPlaceId
-      ? sb.from('places').update(p).eq('id', editingPlaceId)
-      : sb.from('places').insert(p);
 
-    const { error } = await q;
-    if (error) throw error;
-    closeModal('editor-modal');
-    await loadPlaces(false);
+    if (editingPlaceId && !isProposalMode) {
+      const { error } = await sb.from('places').update(baseData).eq('id', editingPlaceId);
+      if (error) throw error;
+      closeModal('editor-modal');
+      await loadPlaces(false);
+    } else {
+      const insertData = {
+        ...baseData,
+        status: isProposalMode ? 'pending' : 'approved',
+        created_by: myProfile?.id || null
+      };
+      const { error } = await sb.from('places').insert(insertData);
+      if (error) throw error;
+
+      if (isProposalMode) {
+        $('editor-msg').className = 'msg msg--ok';
+        $('editor-msg').textContent = 'Propozycja wysłana do zatwierdzenia przez administratora.';
+        setTimeout(() => {
+          closeModal('editor-modal');
+        }, 1100);
+      } else {
+        closeModal('editor-modal');
+        await loadPlaces(false);
+      }
+    }
   } catch (e) {
     $('editor-msg').className = 'msg msg--error';
     $('editor-msg').textContent = e.message;
@@ -958,7 +1076,7 @@ $('editor-save').addEventListener('click', async () => {
 });
 
 $('editor-delete').addEventListener('click', async () => {
-  if (!editingPlaceId || !confirm('Usunąć to miejsce?')) return;
+  if (!editingPlaceId || isProposalMode || !confirm('Usunąć to miejsce?')) return;
   await sb.from('places').delete().eq('id', editingPlaceId);
   closeModal('editor-modal');
   await loadPlaces(false);
