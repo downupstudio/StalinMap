@@ -84,6 +84,19 @@ function getPendingPlaces() {
   return currentPlaces.filter((p) => p.status === 'pending');
 }
 
+function ensureCommentMsgEl() {
+  let msg = $('place-comment-msg');
+  if (!msg) {
+    msg = el('div', 'msg');
+    msg.id = 'place-comment-msg';
+    const submitBtn = $('place-comment-submit');
+    if (submitBtn && submitBtn.parentNode) {
+      submitBtn.parentNode.insertBefore(msg, submitBtn);
+    }
+  }
+  return msg;
+}
+
 function applyTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme);
   localStorage.setItem('theme', theme);
@@ -510,6 +523,7 @@ async function openPlace(place) {
   }
 
   $('place-comment-input').value = '';
+  ensureCommentMsgEl().className = 'msg';
   $('place-comments-list').innerHTML = '<div class="empty">Ładowanie komentarzy...</div>';
   openModal('place-modal');
 
@@ -595,13 +609,36 @@ $('btn-wishlist').addEventListener('click', async () => {
 });
 
 async function loadPlaceComments(placeId) {
-  const { data: comments } = await sb
+  const list = $('place-comments-list');
+  let { data: comments, error } = await sb
     .from('place_comments')
     .select('*, author:profiles!place_comments_author_id_fkey(id, username, avatar_url)')
     .eq('place_id', placeId)
     .order('created_at', { ascending: false });
 
-  const list = $('place-comments-list');
+  if (error) {
+    const fallback = await sb
+      .from('place_comments')
+      .select('*')
+      .eq('place_id', placeId)
+      .order('created_at', { ascending: false });
+
+    if (fallback.error) {
+      list.innerHTML = `<div class="msg msg--error" style="display:block;">Błąd ładowania komentarzy: ${escapeHtml(fallback.error.message)}</div>`;
+      return;
+    }
+    comments = fallback.data || [];
+
+    const missingIds = [...new Set(comments.map((c) => c.author_id).filter((id) => id && !allProfilesMap.has(id)))];
+    if (missingIds.length) {
+      const { data: profs } = await sb
+        .from('profiles')
+        .select('id, username, avatar_url')
+        .in('id', missingIds);
+      (profs || []).forEach((p) => allProfilesMap.set(p.id, p));
+    }
+  }
+
   list.innerHTML = '';
 
   if (!comments?.length) {
@@ -612,14 +649,16 @@ async function loadPlaceComments(placeId) {
   const isStaff = myProfile?.role === 'admin' || myProfile?.role === 'moderator';
 
   comments.forEach((c) => {
-    const authorName = c.author?.username || 'User';
+    const fallbackProfile = allProfilesMap.get(c.author_id);
+    const authorObj = c.author || fallbackProfile || null;
+    const authorName = authorObj?.username || (c.author_id === myProfile?.id ? myProfile?.username : null) || 'User';
     const d = new Date(c.created_at).toLocaleString('pl-PL');
     const canDelete = c.author_id === myProfile?.id || isStaff;
 
     const div = el('div', 'wall-post');
     div.innerHTML = `
       <div class="wall-post__header">
-        <div class="sidebar-avatar">${renderAvatarHtml(c.author?.avatar_url, authorName)}</div>
+        <div class="sidebar-avatar">${renderAvatarHtml(authorObj?.avatar_url, authorName)}</div>
         <div>
           <button type="button" class="wall-post__author">${escapeHtml(authorName)}</button>
           <div class="wall-post__date">${escapeHtml(d)}</div>
@@ -629,10 +668,10 @@ async function loadPlaceComments(placeId) {
     `;
 
     const authorBtn = div.querySelector('.wall-post__author');
-    if (c.author?.username || c.author?.id) {
+    if (authorObj?.username || c.author_id) {
       authorBtn.onclick = () => {
         closeModal('place-modal');
-        openProfile(c.author.username || c.author.id, true);
+        openProfile(authorObj?.username || c.author_id, true);
       };
     }
 
@@ -642,7 +681,14 @@ async function loadPlaceComments(placeId) {
       delBtn.textContent = '✕';
       delBtn.title = 'Usuń komentarz';
       delBtn.onclick = async () => {
-        await sb.from('place_comments').delete().eq('id', c.id);
+        const msg = ensureCommentMsgEl();
+        msg.className = 'msg';
+        const { error: delErr } = await sb.from('place_comments').delete().eq('id', c.id);
+        if (delErr) {
+          msg.className = 'msg msg--error';
+          msg.textContent = delErr.message;
+          return;
+        }
         await loadPlaceComments(placeId);
       };
       div.querySelector('.wall-post__header').appendChild(delBtn);
@@ -653,20 +699,36 @@ async function loadPlaceComments(placeId) {
 }
 
 $('place-comment-submit').addEventListener('click', async () => {
-  const content = $('place-comment-input').value.trim();
-  if (!content || !currentPlace || !myProfile) return;
+  const input = $('place-comment-input');
+  const msg = ensureCommentMsgEl();
+  const content = input.value.trim();
+  msg.className = 'msg';
+
+  if (!content) return;
+  if (!currentPlace || !myProfile) {
+    msg.className = 'msg msg--error';
+    msg.textContent = 'Brak aktywnej sesji lub wybranego miejsca.';
+    return;
+  }
 
   const btn = $('place-comment-submit');
   btn.disabled = true;
-  $('place-comment-input').value = '';
 
-  await sb.from('place_comments').insert({
+  const { error } = await sb.from('place_comments').insert({
     place_id: currentPlace.id,
     author_id: myProfile.id,
     content
   });
 
   btn.disabled = false;
+
+  if (error) {
+    msg.className = 'msg msg--error';
+    msg.textContent = `Nie udało się dodać komentarza: ${error.message}`;
+    return;
+  }
+
+  input.value = '';
   await loadPlaceComments(currentPlace.id);
 });
 
