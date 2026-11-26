@@ -1,3 +1,5 @@
+window.__APP_STARTED__ = true;
+
 const sb = supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls) => {
@@ -1499,12 +1501,8 @@ $('editor-upload')?.addEventListener('change', async (e) => {
   try {
     await checkSession();
   } catch (err) {
-    console.error(err);
+    if (window.__showErr) window.__showErr('start(): ' + (err?.message || err));
     show('auth');
-    if ($('auth-msg')) {
-      $('auth-msg').className = 'msg msg--error';
-      $('auth-msg').textContent = 'Błąd uruchamiania: ' + (err?.message || err);
-    }
   }
   sb.auth.onAuthStateChange((_e, s) => {
     if (!s) show('auth');
