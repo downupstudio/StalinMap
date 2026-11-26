@@ -6,6 +6,10 @@ const el = (tag, cls) => {
   return n;
 };
 
+const BASE_PATH = location.pathname.toLowerCase().startsWith('/stalinmap') ? '/StalinMap' : '';
+const RESERVED_SLUGS = new Set(['map', 'admin', 'login', 'register', 'profile', 'pending', '404', 'index.html']);
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 let map = null;
 let markers = [];
 let currentPlaces = [];
@@ -23,6 +27,27 @@ let currentPlace = null;
 let isVisited = false;
 let currentProfileId = null;
 let authMode = 'login';
+let initialRouteSlug = getSlugFromPath();
+
+function getSlugFromPath() {
+  let rel = location.pathname;
+  if (BASE_PATH && rel.toLowerCase().startsWith(BASE_PATH.toLowerCase())) {
+    rel = rel.slice(BASE_PATH.length);
+  }
+  const slug = decodeURIComponent(rel.replace(/^\/+|\/+$/g, ''));
+  if (!slug || slug.toLowerCase() === 'index.html') return '';
+  return slug;
+}
+
+function validateUsername(name) {
+  if (!/^[a-zA-Z0-9._-]{2,30}$/.test(name)) {
+    return 'Nazwa może zawierać 2–30 znaków (litery, cyfry, kropkę, myślnik, podkreślnik).';
+  }
+  if (RESERVED_SLUGS.has(name.toLowerCase())) {
+    return 'Ta nazwa użytkownika jest zarezerwowana.';
+  }
+  return '';
+}
 
 function escapeHtml(s = '') {
   return String(s).replace(/[&<>"']/g, (c) => ({
@@ -145,7 +170,7 @@ function fitMapToPlaces(places) {
   map.fitBounds(bounds, { padding: 60, maxZoom: 14 });
 }
 
-function show(which) {
+function show(which, pushUrl = false, isOwnProfile = false) {
   ['auth', 'pending', 'map', 'profile'].forEach((v) => {
     $('view-' + v)?.classList.toggle('hidden', v !== which);
   });
@@ -159,10 +184,20 @@ function show(which) {
     $('nav-admin').classList.toggle('hidden', myProfile?.role !== 'admin');
     $('nav-propose').classList.toggle('hidden', myProfile?.role !== 'moderator');
     $('nav-map-btn').classList.toggle('active', which === 'map');
-    $('nav-profile-btn').classList.toggle('btn--ghost', which !== 'profile');
+    $('nav-profile-btn').classList.toggle('btn--ghost', !(which === 'profile' && isOwnProfile));
   } else {
     $('nav-admin').classList.add('hidden');
     $('nav-propose').classList.add('hidden');
+  }
+
+  if (which === 'map') {
+    document.title = 'Mapa Urbex';
+    if (pushUrl) {
+      const homeUrl = `${BASE_PATH}/`;
+      if (location.pathname !== homeUrl) {
+        history.pushState({ view: 'map' }, '', homeUrl);
+      }
+    }
   }
 }
 
@@ -185,9 +220,20 @@ document.addEventListener('keydown', (e) => {
       return;
     }
     document.querySelectorAll('.modal[data-open="true"]').forEach((m) => closeModal(m.id));
-  } else if ($('lightbox').getAttribute('data-open') === 'true') {
+  } else if ($('lightbox').getAttribute('data-open="true') === 'true') {
     if (e.key === 'ArrowLeft') $('lb-prev').click();
     if (e.key === 'ArrowRight') $('lb-next').click();
+  }
+});
+
+window.addEventListener('popstate', async () => {
+  if (!myProfile || !['admin', 'moderator', 'approved_user'].includes(myProfile.role)) return;
+  const slug = getSlugFromPath();
+  if (slug) {
+    await openProfile(slug, false);
+  } else {
+    show('map', false);
+    initMapIfNeeded();
   }
 });
 
@@ -220,10 +266,24 @@ async function loadProfileAndRoute(user) {
   currentProfileId = user.id;
 
   if (['admin', 'moderator', 'approved_user'].includes(profile.role)) {
-    show('map');
-    initMapIfNeeded();
     await loadMyVisits();
-    await loadPlaces(true);
+    await loadPlaces(false);
+
+    const slugToOpen = initialRouteSlug || getSlugFromPath();
+    initialRouteSlug = '';
+
+    if (slugToOpen) {
+      const opened = await openProfile(slugToOpen, false);
+      if (!opened) {
+        show('map', true);
+        initMapIfNeeded();
+        fitMapToPlaces(getApprovedPlaces());
+      }
+    } else {
+      show('map', false);
+      initMapIfNeeded();
+      fitMapToPlaces(getApprovedPlaces());
+    }
   } else {
     show('pending');
   }
@@ -246,9 +306,10 @@ $('auth-form').addEventListener('submit', async (e) => {
       await checkSession();
     }
   } else {
-    if (!username || username.length < 2) {
+    const userErr = validateUsername(username);
+    if (userErr) {
       $('auth-msg').className = 'msg msg--error';
-      $('auth-msg').textContent = 'Podaj nazwę użytkownika (min. 2 znaki).';
+      $('auth-msg').textContent = userErr;
       return;
     }
     if (!email || password.length < 6) {
@@ -261,7 +322,7 @@ $('auth-form').addEventListener('submit', async (e) => {
       password,
       options: {
         data: { username },
-        emailRedirectTo: window.location.origin + window.location.pathname
+        emailRedirectTo: window.location.origin + `${BASE_PATH}/`
       }
     });
     if (error) {
@@ -278,7 +339,7 @@ $('auth-form').addEventListener('submit', async (e) => {
 
 async function logout() {
   await sb.auth.signOut();
-  location.reload();
+  location.href = `${BASE_PATH}/`;
 }
 $('logout-btn').addEventListener('click', logout);
 $('pending-logout').addEventListener('click', logout);
@@ -461,12 +522,16 @@ $('lb-next').onclick = () => {
   updateLightbox();
 };
 
-$('nav-profile-btn').addEventListener('click', () => openProfile(myProfile.id));
+$('nav-profile-btn').addEventListener('click', () => {
+  openProfile(myProfile.username || myProfile.id, true);
+});
+
 $('nav-map-btn').addEventListener('click', (e) => {
   e.preventDefault();
-  show('map');
-  if (map) map.resize();
+  show('map', true);
+  initMapIfNeeded();
 });
+
 $('nav-propose').addEventListener('click', (e) => {
   e.preventDefault();
   openEditor(null, true);
@@ -478,19 +543,39 @@ function renderAvatarHtml(avatarUrl, username) {
   return escapeHtml((username || '?')[0].toUpperCase());
 }
 
-async function openProfile(userId) {
-  show('profile');
-  currentProfileId = userId;
+async function openProfile(identifier, pushUrl = true) {
+  if (!identifier) return false;
+  const isUuid = UUID_RE.test(identifier);
+  const query = isUuid
+    ? sb.from('profiles').select('*').eq('id', identifier).maybeSingle()
+    : sb.from('profiles').select('*').ilike('username', identifier).maybeSingle();
+
+  const { data: profile } = await query;
+  if (!profile) return false;
+
+  const userId = profile.id;
   const isOwnProfile = userId === myProfile.id;
+  currentProfileId = userId;
+
+  const slug = profile.username || profile.id;
+  const targetUrl = `${BASE_PATH}/${encodeURIComponent(slug)}`;
+  if (pushUrl) {
+    if (location.pathname !== targetUrl) {
+      history.pushState({ view: 'profile', slug }, '', targetUrl);
+    }
+  } else if (location.pathname !== targetUrl) {
+    history.replaceState({ view: 'profile', slug }, '', targetUrl);
+  }
+
+  document.title = `${profile.username || 'Profil'} — Mapa Urbex`;
+  show('profile', false, isOwnProfile);
 
   const [
-    { data: profile },
     { data: visits },
     { data: friends },
     { data: posts },
     extraSocial
   ] = await Promise.all([
-    sb.from('profiles').select('*').eq('id', userId).single(),
     sb.from('visits').select('place_id').eq('user_id', userId),
     sb.from('friendships')
       .select('*, user1:profiles!friendships_user1_id_fkey(id, username, avatar_url), user2:profiles!friendships_user2_id_fkey(id, username, avatar_url)')
@@ -511,13 +596,23 @@ async function openProfile(userId) {
           .maybeSingle()
   ]);
 
-  if (!profile) return;
-
   $('profile-avatar-display').innerHTML = renderAvatarHtml(profile.avatar_url, profile.username);
   $('profile-name-display').textContent = profile.username || 'User';
+  $('profile-handle').textContent = profile.username ? `/${profile.username}` : '';
 
   const actions = $('profile-actions');
   actions.innerHTML = '';
+
+  const copyBtn = el('button', 'btn btn--small btn--ghost');
+  copyBtn.textContent = 'Kopiuj link';
+  copyBtn.onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      copyBtn.textContent = 'Skopiowano ✓';
+      setTimeout(() => { copyBtn.textContent = 'Kopiuj link'; }, 1500);
+    } catch {}
+  };
+  actions.appendChild(copyBtn);
 
   if (isOwnProfile) {
     const btn = el('button', 'btn btn--small btn--ghost');
@@ -532,7 +627,7 @@ async function openProfile(userId) {
         btn.textContent = 'Usuń znajomego';
         btn.onclick = async () => {
           await sb.from('friendships').delete().eq('id', f.id);
-          openProfile(userId);
+          openProfile(slug, false);
         };
         actions.appendChild(btn);
       } else if (f.user1_id === myProfile.id) {
@@ -547,14 +642,14 @@ async function openProfile(userId) {
         btn.textContent = 'Akceptuj';
         btn.onclick = async () => {
           await sb.from('friendships').update({ status: 'accepted' }).eq('id', f.id);
-          openProfile(userId);
+          openProfile(slug, false);
         };
 
         const rej = el('button', 'btn btn--small btn--danger');
         rej.textContent = 'Odrzuć';
         rej.onclick = async () => {
           await sb.from('friendships').delete().eq('id', f.id);
-          openProfile(userId);
+          openProfile(slug, false);
         };
 
         actions.appendChild(btn);
@@ -565,7 +660,7 @@ async function openProfile(userId) {
       btn.textContent = 'Dodaj do znajomych';
       btn.onclick = async () => {
         await sb.from('friendships').insert({ user1_id: myProfile.id, user2_id: userId, status: 'pending' });
-        openProfile(userId);
+        openProfile(slug, false);
       };
       actions.appendChild(btn);
     }
@@ -590,7 +685,7 @@ async function openProfile(userId) {
       acc.title = 'Akceptuj';
       acc.onclick = async () => {
         await sb.from('friendships').update({ status: 'accepted' }).eq('id', r.id);
-        openProfile(myProfile.id);
+        openProfile(myProfile.username || myProfile.id, false);
       };
 
       const rej = el('button', 'btn btn--small btn--danger');
@@ -598,7 +693,7 @@ async function openProfile(userId) {
       rej.title = 'Odrzuć';
       rej.onclick = async () => {
         await sb.from('friendships').delete().eq('id', r.id);
-        openProfile(myProfile.id);
+        openProfile(myProfile.username || myProfile.id, false);
       };
 
       li.appendChild(acc);
@@ -621,7 +716,7 @@ async function openProfile(userId) {
     li.innerHTML = `<div class="sidebar-avatar">${renderAvatarHtml(fp.avatar_url, fp.username)}</div>`;
     const nameBtn = el('button');
     nameBtn.textContent = fp.username || 'User';
-    nameBtn.onclick = () => openProfile(fp.id);
+    nameBtn.onclick = () => openProfile(fp.username || fp.id, true);
     li.appendChild(nameBtn);
     fList.appendChild(li);
   });
@@ -643,7 +738,7 @@ async function openProfile(userId) {
     const btn = el('button', 'visited-link');
     btn.textContent = place.title;
     btn.onclick = () => {
-      show('map');
+      show('map', true);
       initMapIfNeeded();
       if (map && typeof place.longitude === 'number' && typeof place.latitude === 'number') {
         map.flyTo({ center: [place.longitude, place.latitude], zoom: 14 });
@@ -665,7 +760,7 @@ async function openProfile(userId) {
 
   if (!posts?.length) {
     feed.innerHTML = '<div class="empty">Brak wpisów na ścianie.</div>';
-    return;
+    return true;
   }
 
   posts.forEach((p) => {
@@ -676,14 +771,20 @@ async function openProfile(userId) {
       <div class="wall-post__header">
         <div class="sidebar-avatar">${renderAvatarHtml(p.author?.avatar_url, authorName)}</div>
         <div>
-          <div class="wall-post__author">${escapeHtml(authorName)}</div>
+          <button type="button" class="wall-post__author">${escapeHtml(authorName)}</button>
           <div class="wall-post__date">${escapeHtml(d)}</div>
         </div>
       </div>
       <div class="wall-post__content">${escapeHtml(p.content)}</div>
     `;
+    const authorBtn = div.querySelector('.wall-post__author');
+    if (p.author?.username || p.author?.id) {
+      authorBtn.onclick = () => openProfile(p.author.username || p.author.id, true);
+    }
     feed.appendChild(div);
   });
+
+  return true;
 }
 
 $('wall-submit').addEventListener('click', async () => {
@@ -695,7 +796,7 @@ $('wall-submit').addEventListener('click', async () => {
     target_id: currentProfileId,
     content
   });
-  openProfile(currentProfileId);
+  openProfile(getSlugFromPath() || currentProfileId, false);
 });
 
 let searchTimer = null;
@@ -735,7 +836,7 @@ $('global-search').addEventListener('input', (e) => {
       btn.onclick = () => {
         $('global-search').value = '';
         resBox.classList.add('hidden');
-        openProfile(u.id);
+        openProfile(u.username || u.id, true);
       };
       li.appendChild(btn);
       resBox.appendChild(li);
@@ -761,9 +862,10 @@ $('edit-save').addEventListener('click', async () => {
   const username = $('edit-username').value.trim();
   const rawAvatar = $('edit-avatar').value.trim();
 
-  if (!username || username.length < 2) {
+  const userErr = validateUsername(username);
+  if (userErr) {
     $('edit-msg').className = 'msg msg--error';
-    $('edit-msg').textContent = 'Nazwa użytkownika musi mieć min. 2 znaki.';
+    $('edit-msg').textContent = userErr;
     return;
   }
 
@@ -781,12 +883,14 @@ $('edit-save').addEventListener('click', async () => {
 
   if (error) {
     $('edit-msg').className = 'msg msg--error';
-    $('edit-msg').textContent = error.message;
+    $('edit-msg').textContent = error.code === '23505'
+      ? 'Ta nazwa użytkownika jest już zajęta.'
+      : error.message;
   } else {
     myProfile.username = username;
     myProfile.avatar_url = avatar_url;
     closeModal('profile-edit-modal');
-    openProfile(myProfile.id);
+    openProfile(myProfile.username, true);
   }
 });
 
