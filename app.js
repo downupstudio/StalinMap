@@ -100,11 +100,11 @@ function ensureCommentMsgEl() {
 function applyTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme);
   localStorage.setItem('theme', theme);
-  $('theme-icon').textContent = theme === 'dark' ? '☀' : '☾';
+  if ($('theme-icon')) $('theme-icon').textContent = theme === 'dark' ? '☀' : '☾';
   if (map) map.setStyle(getMapStyle(theme));
 }
 
-$('theme-toggle').addEventListener('click', () => {
+$('theme-toggle')?.addEventListener('click', () => {
   applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
 });
 applyTheme(document.documentElement.getAttribute('data-theme') || 'light');
@@ -136,6 +136,7 @@ function initMapIfNeeded() {
     map.resize();
     return;
   }
+  if (!$('map')) return;
   const center = window.MAP_CONFIG?.center || [19.4560, 51.7592];
   const zoom = window.MAP_CONFIG?.zoom || 12;
 
@@ -195,18 +196,18 @@ function show(which, pushUrl = false, isOwnProfile = false) {
   });
 
   const isAppView = which === 'map' || which === 'profile';
-  $('nav-subbar').classList.toggle('hidden', !isAppView);
-  $('nav-profile-btn').classList.toggle('hidden', !isAppView);
-  $('logout-btn').classList.toggle('hidden', !isAppView);
+  $('nav-subbar')?.classList.toggle('hidden', !isAppView);
+  $('nav-profile-btn')?.classList.toggle('hidden', !isAppView);
+  $('logout-btn')?.classList.toggle('hidden', !isAppView);
 
   if (isAppView) {
-    $('nav-admin').classList.toggle('hidden', myProfile?.role !== 'admin');
-    $('nav-propose').classList.toggle('hidden', myProfile?.role !== 'moderator');
-    $('nav-map-btn').classList.toggle('active', which === 'map');
-    $('nav-profile-btn').classList.toggle('btn--ghost', !(which === 'profile' && isOwnProfile));
+    $('nav-admin')?.classList.toggle('hidden', myProfile?.role !== 'admin');
+    $('nav-propose')?.classList.toggle('hidden', myProfile?.role !== 'moderator');
+    $('nav-map-btn')?.classList.toggle('active', which === 'map');
+    $('nav-profile-btn')?.classList.toggle('btn--ghost', !(which === 'profile' && isOwnProfile));
   } else {
-    $('nav-admin').classList.add('hidden');
-    $('nav-propose').classList.add('hidden');
+    $('nav-admin')?.classList.add('hidden');
+    $('nav-propose')?.classList.add('hidden');
   }
 
   if (which === 'map') {
@@ -221,11 +222,11 @@ function show(which, pushUrl = false, isOwnProfile = false) {
 }
 
 function openModal(id) {
-  $(id).setAttribute('data-open', 'true');
+  $(id)?.setAttribute('data-open', 'true');
 }
 
 function closeModal(id) {
-  $(id).setAttribute('data-open', 'false');
+  $(id)?.setAttribute('data-open', 'false');
 }
 
 document.querySelectorAll('[data-close]').forEach((btn) => {
@@ -234,14 +235,14 @@ document.querySelectorAll('[data-close]').forEach((btn) => {
 
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
-    if ($('lightbox').getAttribute('data-open') === 'true') {
+    if ($('lightbox')?.getAttribute('data-open') === 'true') {
       closeModal('lightbox');
       return;
     }
     document.querySelectorAll('.modal[data-open="true"]').forEach((m) => closeModal(m.id));
-  } else if ($('lightbox').getAttribute('data-open') === 'true') {
-    if (e.key === 'ArrowLeft') $('lb-prev').click();
-    if (e.key === 'ArrowRight') $('lb-next').click();
+  } else if ($('lightbox')?.getAttribute('data-open') === 'true') {
+    if (e.key === 'ArrowLeft') $('lb-prev')?.click();
+    if (e.key === 'ArrowRight') $('lb-next')?.click();
   }
 });
 
@@ -259,17 +260,17 @@ window.addEventListener('popstate', async () => {
 function setAuthMode(mode) {
   authMode = mode;
   const isReg = mode === 'register';
-  $('tab-auth-login').classList.toggle('active', !isReg);
-  $('tab-auth-register').classList.toggle('active', isReg);
-  $('username-row').classList.toggle('hidden', !isReg);
-  $('auth-heading').textContent = isReg ? 'Utwórz konto' : 'Zaloguj się';
-  $('btn-auth-submit').textContent = isReg ? 'Zarejestruj się' : 'Zaloguj';
-  $('auth-password').setAttribute('autocomplete', isReg ? 'new-password' : 'current-password');
-  $('auth-msg').className = 'msg';
+  $('tab-auth-login')?.classList.toggle('active', !isReg);
+  $('tab-auth-register')?.classList.toggle('active', isReg);
+  $('username-row')?.classList.toggle('hidden', !isReg);
+  if ($('auth-heading')) $('auth-heading').textContent = isReg ? 'Utwórz konto' : 'Zaloguj się';
+  if ($('btn-auth-submit')) $('btn-auth-submit').textContent = isReg ? 'Zarejestruj się' : 'Zaloguj';
+  $('auth-password')?.setAttribute('autocomplete', isReg ? 'new-password' : 'current-password');
+  if ($('auth-msg')) $('auth-msg').className = 'msg';
 }
 
-$('tab-auth-login').addEventListener('click', () => setAuthMode('login'));
-$('tab-auth-register').addEventListener('click', () => setAuthMode('register'));
+$('tab-auth-login')?.addEventListener('click', () => setAuthMode('login'));
+$('tab-auth-register')?.addEventListener('click', () => setAuthMode('register'));
 
 async function checkSession() {
   const { data: { session } } = await sb.auth.getSession();
@@ -308,7 +309,7 @@ async function loadProfileAndRoute(user) {
   }
 }
 
-$('auth-form').addEventListener('submit', async (e) => {
+$('auth-form')?.addEventListener('submit', async (e) => {
   e.preventDefault();
   const email = $('auth-email').value.trim();
   const password = $('auth-password').value;
@@ -360,8 +361,8 @@ async function logout() {
   await sb.auth.signOut();
   location.href = `${BASE_PATH}/`;
 }
-$('logout-btn').addEventListener('click', logout);
-$('pending-logout').addEventListener('click', logout);
+$('logout-btn')?.addEventListener('click', logout);
+$('pending-logout')?.addEventListener('click', logout);
 
 async function loadMyStatuses() {
   if (!myProfile) return;
@@ -386,23 +387,25 @@ function renderSidebar() {
   const approvedPlaces = getApprovedPlaces();
 
   const statusList = $('status-filter-list');
-  statusList.innerHTML = '';
-  [
-    ['all', 'Wszystkie'],
-    ['visited', 'Odwiedzone'],
-    ['wishlist', 'Chcę odwiedzić'],
-    ['unvisited', 'Nieodwiedzone']
-  ].forEach(([val, label]) => {
-    const li = el('li');
-    const btn = el('button', 'status-pill' + (currentFilterStatus === val ? ' active' : ''));
-    btn.textContent = label;
-    btn.onclick = () => {
-      currentFilterStatus = val;
-      renderSidebar();
-    };
-    li.appendChild(btn);
-    statusList.appendChild(li);
-  });
+  if (statusList) {
+    statusList.innerHTML = '';
+    [
+      ['all', 'Wszystkie'],
+      ['visited', 'Odwiedzone'],
+      ['wishlist', 'Chcę odwiedzić'],
+      ['unvisited', 'Nieodwiedzone']
+    ].forEach(([val, label]) => {
+      const li = el('li');
+      const btn = el('button', 'status-pill' + (currentFilterStatus === val ? ' active' : ''));
+      btn.textContent = label;
+      btn.onclick = () => {
+        currentFilterStatus = val;
+        renderSidebar();
+      };
+      li.appendChild(btn);
+      statusList.appendChild(li);
+    });
+  }
 
   const cats = new Map();
   approvedPlaces.forEach((p) => {
@@ -411,29 +414,31 @@ function renderSidebar() {
   });
 
   const catList = $('category-list');
-  catList.innerHTML = '';
+  if (catList) {
+    catList.innerHTML = '';
 
-  const allLi = el('li');
-  const allBtn = el('button', 'filter-btn' + (currentFilterCat === 'all' ? ' active' : ''));
-  allBtn.innerHTML = `<span>Wszystkie</span><span>${approvedPlaces.length}</span>`;
-  allBtn.onclick = () => {
-    currentFilterCat = 'all';
-    renderSidebar();
-  };
-  allLi.appendChild(allBtn);
-  catList.appendChild(allLi);
-
-  [...cats.entries()].sort().forEach(([cat, count]) => {
-    const li = el('li');
-    const btn = el('button', 'filter-btn' + (currentFilterCat === cat ? ' active' : ''));
-    btn.innerHTML = `<span>${escapeHtml(cat)}</span><span>${count}</span>`;
-    btn.onclick = () => {
-      currentFilterCat = cat;
+    const allLi = el('li');
+    const allBtn = el('button', 'filter-btn' + (currentFilterCat === 'all' ? ' active' : ''));
+    allBtn.innerHTML = `<span>Wszystkie</span><span>${approvedPlaces.length}</span>`;
+    allBtn.onclick = () => {
+      currentFilterCat = 'all';
       renderSidebar();
     };
-    li.appendChild(btn);
-    catList.appendChild(li);
-  });
+    allLi.appendChild(allBtn);
+    catList.appendChild(allLi);
+
+    [...cats.entries()].sort().forEach(([cat, count]) => {
+      const li = el('li');
+      const btn = el('button', 'filter-btn' + (currentFilterCat === cat ? ' active' : ''));
+      btn.innerHTML = `<span>${escapeHtml(cat)}</span><span>${count}</span>`;
+      btn.onclick = () => {
+        currentFilterCat = cat;
+        renderSidebar();
+      };
+      li.appendChild(btn);
+      catList.appendChild(li);
+    });
+  }
 
   const filtered = approvedPlaces.filter((p) => {
     const matchCat = currentFilterCat === 'all' || (p.category || 'inne') === currentFilterCat;
@@ -447,8 +452,9 @@ function renderSidebar() {
 
   renderMarkers(filtered);
 
-  $('places-count').textContent = filtered.length;
+  if ($('places-count')) $('places-count').textContent = filtered.length;
   const list = $('places-list');
+  if (!list) return;
   list.innerHTML = '';
 
   if (!filtered.length) {
@@ -480,7 +486,7 @@ function renderSidebar() {
   });
 }
 
-$('search-input').addEventListener('input', (e) => {
+$('search-input')?.addEventListener('input', (e) => {
   currentSearch = e.target.value.toLowerCase().trim();
   renderSidebar();
 });
@@ -522,9 +528,11 @@ async function openPlace(place) {
     });
   }
 
-  $('place-comment-input').value = '';
+  if ($('place-comment-input')) $('place-comment-input').value = '';
   ensureCommentMsgEl().className = 'msg';
-  $('place-comments-list').innerHTML = '<div class="empty">Ładowanie komentarzy...</div>';
+  if ($('place-comments-list')) {
+    $('place-comments-list').innerHTML = '<div class="empty">Ładowanie komentarzy...</div>';
+  }
   openModal('place-modal');
 
   await Promise.all([
@@ -534,11 +542,14 @@ async function openPlace(place) {
 }
 
 function updatePlaceStatusButtons() {
-  $('btn-visited').textContent = isVisited ? '✓ Odwiedzone (kliknij by usunąć)' : 'Odwiedziłem to miejsce';
-  $('btn-visited').className = isVisited ? 'btn btn--small btn--ghost' : 'btn btn--small';
-
-  $('btn-wishlist').textContent = isWishlisted ? '★ Na liście do odwiedzenia' : '★ Chcę odwiedzić';
-  $('btn-wishlist').className = isWishlisted ? 'btn btn--small btn--wishlist-active' : 'btn btn--small btn--ghost';
+  if ($('btn-visited')) {
+    $('btn-visited').textContent = isVisited ? '✓ Odwiedzone (kliknij by usunąć)' : 'Odwiedziłem to miejsce';
+    $('btn-visited').className = isVisited ? 'btn btn--small btn--ghost' : 'btn btn--small';
+  }
+  if ($('btn-wishlist')) {
+    $('btn-wishlist').textContent = isWishlisted ? '★ Na liście do odwiedzenia' : '★ Chcę odwiedzić';
+    $('btn-wishlist').className = isWishlisted ? 'btn btn--small btn--wishlist-active' : 'btn btn--small btn--ghost';
+  }
 }
 
 async function checkPlaceStatuses(placeId) {
@@ -560,7 +571,7 @@ async function checkPlaceStatuses(placeId) {
   updatePlaceStatusButtons();
 }
 
-$('btn-visited').addEventListener('click', async () => {
+$('btn-visited')?.addEventListener('click', async () => {
   if (!currentPlace || !myProfile) return;
   const placeId = currentPlace.id;
 
@@ -584,7 +595,7 @@ $('btn-visited').addEventListener('click', async () => {
   renderSidebar();
 });
 
-$('btn-wishlist').addEventListener('click', async () => {
+$('btn-wishlist')?.addEventListener('click', async () => {
   if (!currentPlace || !myProfile) return;
   const placeId = currentPlace.id;
 
@@ -610,6 +621,8 @@ $('btn-wishlist').addEventListener('click', async () => {
 
 async function loadPlaceComments(placeId) {
   const list = $('place-comments-list');
+  if (!list) return;
+
   let { data: comments, error } = await sb
     .from('place_comments')
     .select('*, author:profiles!place_comments_author_id_fkey(id, username, avatar_url)')
@@ -698,7 +711,7 @@ async function loadPlaceComments(placeId) {
   });
 }
 
-$('place-comment-submit').addEventListener('click', async () => {
+$('place-comment-submit')?.addEventListener('click', async () => {
   const input = $('place-comment-input');
   const msg = ensureCommentMsgEl();
   const content = input.value.trim();
@@ -738,29 +751,29 @@ function updateLightbox() {
   $('lb-counter').textContent = `${currentGalleryIdx + 1} / ${currentGallery.length}`;
 }
 
-$('lb-close').onclick = () => closeModal('lightbox');
-$('lb-prev').onclick = () => {
+$('lb-close')?.addEventListener('click', () => closeModal('lightbox'));
+$('lb-prev')?.addEventListener('click', () => {
   if (!currentGallery.length) return;
   currentGalleryIdx = (currentGalleryIdx - 1 + currentGallery.length) % currentGallery.length;
   updateLightbox();
-};
-$('lb-next').onclick = () => {
+});
+$('lb-next')?.addEventListener('click', () => {
   if (!currentGallery.length) return;
   currentGalleryIdx = (currentGalleryIdx + 1) % currentGallery.length;
   updateLightbox();
-};
+});
 
-$('nav-profile-btn').addEventListener('click', () => {
+$('nav-profile-btn')?.addEventListener('click', () => {
   openProfile(myProfile.username || myProfile.id, true);
 });
 
-$('nav-map-btn').addEventListener('click', (e) => {
+$('nav-map-btn')?.addEventListener('click', (e) => {
   e.preventDefault();
   show('map', true);
   initMapIfNeeded();
 });
 
-$('nav-propose').addEventListener('click', (e) => {
+$('nav-propose')?.addEventListener('click', (e) => {
   e.preventDefault();
   openEditor(null, true);
 });
@@ -985,30 +998,31 @@ async function openProfile(identifier, pushUrl = true) {
   }
 
   const wList = $('wishlist-list');
-  wList.innerHTML = '';
   let wCount = 0;
+  if (wList) {
+    wList.innerHTML = '';
+    (wishes || []).forEach((w) => {
+      const place = placesById.get(w.place_id);
+      if (!place) return;
+      wCount++;
+      const li = el('li');
+      const btn = el('button', 'visited-link');
+      btn.textContent = place.title;
+      btn.onclick = () => {
+        show('map', true);
+        initMapIfNeeded();
+        if (map && typeof place.longitude === 'number' && typeof place.latitude === 'number') {
+          map.flyTo({ center: [place.longitude, place.latitude], zoom: 14 });
+        }
+        openPlace(place);
+      };
+      li.appendChild(btn);
+      wList.appendChild(li);
+    });
 
-  (wishes || []).forEach((w) => {
-    const place = placesById.get(w.place_id);
-    if (!place) return;
-    wCount++;
-    const li = el('li');
-    const btn = el('button', 'visited-link');
-    btn.textContent = place.title;
-    btn.onclick = () => {
-      show('map', true);
-      initMapIfNeeded();
-      if (map && typeof place.longitude === 'number' && typeof place.latitude === 'number') {
-        map.flyTo({ center: [place.longitude, place.latitude], zoom: 14 });
-      }
-      openPlace(place);
-    };
-    li.appendChild(btn);
-    wList.appendChild(li);
-  });
-
-  if (!wCount) {
-    wList.innerHTML = '<li class="empty">Brak planowanych miejsc</li>';
+    if (!wCount) {
+      wList.innerHTML = '<li class="empty">Brak planowanych miejsc</li>';
+    }
   }
 
   $('profile-stats').textContent = `${fCount} znajomych • ${vCount} odwiedzonych • ${wCount} do odwiedzenia`;
@@ -1045,7 +1059,7 @@ async function openProfile(identifier, pushUrl = true) {
   return true;
 }
 
-$('wall-submit').addEventListener('click', async () => {
+$('wall-submit')?.addEventListener('click', async () => {
   const content = $('wall-input').value.trim();
   if (!content || !myProfile || !currentProfileId) return;
   $('wall-input').value = '';
@@ -1058,10 +1072,11 @@ $('wall-submit').addEventListener('click', async () => {
 });
 
 let searchTimer = null;
-$('global-search').addEventListener('input', (e) => {
+$('global-search')?.addEventListener('input', (e) => {
   clearTimeout(searchTimer);
   const q = e.target.value.trim();
   const resBox = $('search-results');
+  if (!resBox) return;
 
   if (q.length < 2) {
     resBox.classList.add('hidden');
@@ -1116,7 +1131,7 @@ function openEditProfile() {
   openModal('profile-edit-modal');
 }
 
-$('edit-save').addEventListener('click', async () => {
+$('edit-save')?.addEventListener('click', async () => {
   const username = $('edit-username').value.trim();
   const rawAvatar = $('edit-avatar').value.trim();
 
@@ -1152,14 +1167,14 @@ $('edit-save').addEventListener('click', async () => {
   }
 });
 
-$('nav-admin').addEventListener('click', async (e) => {
+$('nav-admin')?.addEventListener('click', async (e) => {
   e.preventDefault();
   openModal('admin-modal');
   await renderAdminUsers();
   renderAdminPlaces();
 });
 
-$('admin-tabs').addEventListener('click', (e) => {
+$('admin-tabs')?.addEventListener('click', (e) => {
   const t = e.target.closest('.tab');
   if (!t) return;
   document.querySelectorAll('#admin-tabs .tab').forEach((x) => x.classList.toggle('active', x === t));
@@ -1233,7 +1248,7 @@ async function renderAdminUsers() {
       select.onchange = async () => {
         const newRole = select.value;
         select.disabled = true;
-        const { data, error } = await sb
+        const { data: updated, error } = await sb
           .from('profiles')
           .update({ role: newRole })
           .eq('id', u.id)
@@ -1241,16 +1256,24 @@ async function renderAdminUsers() {
 
         if (error) {
           alert(`Błąd zmiany roli: ${error.message}`);
-        } else if (!data || !data.length) {
+        } else if (!updated || !updated.length) {
           alert('Brak uprawnień (RLS) do zmiany roli tego użytkownika.');
         }
         await renderAdminUsers();
       };
+      actions.appendChild(select);
+    }
+
+    li.appendChild(actions);
+    $('approved-users').appendChild(li);
+  });
 }
 
 function renderAdminPlaces() {
   const pendingList = $('admin-pending-places');
   const approvedList = $('admin-places-list');
+  if (!pendingList || !approvedList) return;
+
   const pending = getPendingPlaces();
   const approved = getApprovedPlaces();
 
@@ -1338,11 +1361,11 @@ function syncJsonToForm() {
 }
 
 ['ed-title', 'ed-category', 'ed-desc', 'ed-entry', 'ed-lat', 'ed-lng'].forEach((id) => {
-  $(id).addEventListener('input', syncFormToJson);
+  $(id)?.addEventListener('input', syncFormToJson);
 });
-$('editor-json').addEventListener('input', syncJsonToForm);
+$('editor-json')?.addEventListener('input', syncJsonToForm);
 
-$('ed-use-center').addEventListener('click', () => {
+$('ed-use-center')?.addEventListener('click', () => {
   if (!map) return;
   const c = map.getCenter();
   $('ed-lat').value = c.lat.toFixed(6);
@@ -1350,7 +1373,7 @@ $('ed-use-center').addEventListener('click', () => {
   syncFormToJson();
 });
 
-$('btn-new-place').addEventListener('click', () => openEditor(null, false));
+$('btn-new-place')?.addEventListener('click', () => openEditor(null, false));
 
 function openEditor(place, propose = false) {
   isProposalMode = propose || myProfile?.role !== 'admin';
@@ -1394,7 +1417,7 @@ function openEditor(place, propose = false) {
   openModal('editor-modal');
 }
 
-$('editor-save').addEventListener('click', async () => {
+$('editor-save')?.addEventListener('click', async () => {
   try {
     const d = JSON.parse($('editor-json').value);
     if (!d.title || !d.title.trim()) {
@@ -1442,14 +1465,14 @@ $('editor-save').addEventListener('click', async () => {
   }
 });
 
-$('editor-delete').addEventListener('click', async () => {
+$('editor-delete')?.addEventListener('click', async () => {
   if (!editingPlaceId || isProposalMode || !confirm('Usunąć to miejsce?')) return;
   await sb.from('places').delete().eq('id', editingPlaceId);
   closeModal('editor-modal');
   await loadPlaces(false);
 });
 
-$('editor-upload').addEventListener('change', async (e) => {
+$('editor-upload')?.addEventListener('change', async (e) => {
   const files = [...e.target.files];
   if (!files.length) return;
   let d;
@@ -1473,7 +1496,16 @@ $('editor-upload').addEventListener('change', async (e) => {
 });
 
 (async function start() {
-  await checkSession();
+  try {
+    await checkSession();
+  } catch (err) {
+    console.error(err);
+    show('auth');
+    if ($('auth-msg')) {
+      $('auth-msg').className = 'msg msg--error';
+      $('auth-msg').textContent = 'Błąd uruchamiania: ' + (err?.message || err);
+    }
+  }
   sb.auth.onAuthStateChange((_e, s) => {
     if (!s) show('auth');
   });
