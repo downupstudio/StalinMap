@@ -819,6 +819,10 @@ button, select { font: inherit; color: inherit; background: none; cursor: pointe
   word-break: break-word;
 }
 
+.wall-post__author:hover {
+  text-decoration: underline;
+}
+
 .lightbox {
   position: fixed;
   inset: 0;
