@@ -19,7 +19,7 @@
     })();
   </script>
   <link href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.6.1/dist/maplibre-gl.css" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=4">
+  <link rel="stylesheet" href="style.css?v=5">
 </head>
 <body>
 
@@ -28,7 +28,7 @@
     <div class="nav__logo"><span class="nav__logo-mark">▲</span><span>URBEX / MAPA</span></div>
     <div class="nav__actions">
       <button id="theme-toggle" class="theme-toggle" aria-label="Zmień motyw"><span id="theme-icon">☾</span></button>
-      <button type="button" class="btn btn--small btn--ghost" data-open-modal="faq-modal">FAQ</button>
+      <button type="button" class="btn btn--small btn--ghost" onclick="document.getElementById('faq-modal').setAttribute('data-open','true')">FAQ</button>
       <button id="nav-profile-btn" class="btn btn--small hidden">Mój Profil</button>
       <button id="logout-btn" class="btn btn--small btn--ghost hidden">Wyloguj</button>
     </div>
@@ -80,7 +80,7 @@
       </form>
 
       <div class="faq-teaser">
-        <button type="button" class="btn btn--small btn--ghost btn--full" data-open-modal="faq-modal">FAQ — Kto stworzył mapę i jak działa dostęp?</button>
+        <button type="button" class="btn btn--small btn--ghost btn--full" onclick="document.getElementById('faq-modal').setAttribute('data-open','true')">FAQ — Kto stworzył mapę i jak działa dostęp?</button>
       </div>
     </div>
   </section>
@@ -90,7 +90,7 @@
       <h1 class="auth-card__title">Oczekiwanie na zatwierdzenie</h1>
       <p class="auth-card__note">Twoje konto oczekuje na weryfikację przez administratora. Sprawdź FAQ, aby dowiedzieć się więcej o zasadach dostępu.</p>
       <div style="display:flex; flex-direction:column; gap:8px; margin-top:16px;">
-        <button type="button" class="btn btn--small" data-open-modal="faq-modal">Czemu moje konto nie jest zatwierdzone? (FAQ)</button>
+        <button type="button" class="btn btn--small" onclick="document.getElementById('faq-modal').setAttribute('data-open','true')">Czemu moje konto nie jest zatwierdzone? (FAQ)</button>
         <button class="btn btn--ghost btn--full" id="pending-logout">Wyloguj</button>
       </div>
     </div>
@@ -164,11 +164,11 @@
 </main>
 
 <div class="modal" id="faq-modal" data-open="false">
-  <div class="modal__backdrop" data-close="faq-modal"></div>
+  <div class="modal__backdrop" onclick="document.getElementById('faq-modal').setAttribute('data-open','false')"></div>
   <div class="modal__panel modal__panel--wide">
     <header class="modal__head">
       <h2 class="modal__title">FAQ — Najczęstsze pytania</h2>
-      <button class="modal__close" data-close="faq-modal" aria-label="Zamknij">Zamknij ✕</button>
+      <button type="button" class="modal__close" onclick="document.getElementById('faq-modal').setAttribute('data-open','false')" aria-label="Zamknij">Zamknij ✕</button>
     </header>
     <div class="modal__body">
       <div class="faq-list">
@@ -378,7 +378,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.6.1/dist/maplibre-gl.js"></script>
-<script src="config.js?v=4"></script>
-<script src="app.js?v=4"></script>
+<script src="config.js?v=5"></script>
+<script src="app.js?v=5"></script>
 </body>
 </html>
