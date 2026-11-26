@@ -235,6 +235,10 @@ document.querySelectorAll('[data-close]').forEach((btn) => {
   btn.addEventListener('click', () => closeModal(btn.dataset.close));
 });
 
+document.querySelectorAll('[data-open-modal]').forEach((btn) => {
+  btn.addEventListener('click', () => openModal(btn.dataset.openModal));
+});
+
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     if ($('lightbox')?.getAttribute('data-open') === 'true') {
