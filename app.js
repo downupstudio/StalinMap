@@ -1231,16 +1231,21 @@ async function renderAdminUsers() {
       });
 
       select.onchange = async () => {
+        const newRole = select.value;
         select.disabled = true;
-        await sb.from('profiles').update({ role: select.value }).eq('id', u.id);
+        const { data, error } = await sb
+          .from('profiles')
+          .update({ role: newRole })
+          .eq('id', u.id)
+          .select();
+
+        if (error) {
+          alert(`Błąd zmiany roli: ${error.message}`);
+        } else if (!data || !data.length) {
+          alert('Brak uprawnień (RLS) do zmiany roli tego użytkownika.');
+        }
         await renderAdminUsers();
       };
-      actions.appendChild(select);
-    }
-
-    li.appendChild(actions);
-    $('approved-users').appendChild(li);
-  });
 }
 
 function renderAdminPlaces() {
