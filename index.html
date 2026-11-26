@@ -4,11 +4,22 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Mapa Urbex</title>
+  <script>
+    (function () {
+      const base = location.pathname.toLowerCase().startsWith('/stalinmap') ? '/StalinMap' : '';
+      const redirect = sessionStorage.getItem('spa_redirect');
+      if (redirect) {
+        sessionStorage.removeItem('spa_redirect');
+        const cleaned = redirect.replace(/\/+$/, '') || (base + '/');
+        history.replaceState(null, '', cleaned);
+      } else if (location.pathname.length > (base.length + 1) && location.pathname.endsWith('/')) {
+        history.replaceState(null, '', location.pathname.replace(/\/+$/, ''));
+      }
+      document.documentElement.setAttribute('data-theme', localStorage.getItem('theme') || 'light');
+    })();
+  </script>
   <link href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.6.1/dist/maplibre-gl.css" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
-  <script>
-    document.documentElement.setAttribute('data-theme', localStorage.getItem('theme') || 'light');
-  </script>
 </head>
 <body>
 
@@ -24,7 +35,7 @@
 
   <div class="nav__bottom hidden" id="nav-subbar">
     <div class="nav__links" id="nav-links">
-      <a href="#map" class="active" id="nav-map-btn">Mapa</a>
+      <a href="/StalinMap/" class="active" id="nav-map-btn">Mapa</a>
       <a href="#propose" id="nav-propose" class="hidden">+ Zaproponuj</a>
       <a href="#admin" id="nav-admin" class="hidden">Admin</a>
     </div>
@@ -50,8 +61,8 @@
 
       <form id="auth-form" class="form form--bare">
         <div class="form-row hidden" id="username-row">
-          <label class="form-label" for="auth-username">Nazwa użytkownika</label>
-          <input class="form-input" id="auth-username" type="text" autocomplete="username">
+          <label class="form-label" for="auth-username">Nazwa użytkownika (link do profilu)</label>
+          <input class="form-input" id="auth-username" type="text" autocomplete="username" placeholder="np. idraws">
         </div>
         <div class="form-row">
           <label class="form-label" for="auth-email">E-mail</label>
@@ -101,6 +112,7 @@
           <div class="profile-avatar-large" id="profile-avatar-display">?</div>
           <div class="profile-title">
             <h1 id="profile-name-display">Username</h1>
+            <p id="profile-handle" style="font-size:0.75rem; opacity:0.5; margin-bottom:4px;"></p>
             <p id="profile-stats">0 znajomych • 0 odwiedzonych</p>
           </div>
           <div class="profile-actions" id="profile-actions"></div>
@@ -256,7 +268,7 @@
     </header>
     <div class="modal__body">
       <div class="form-row">
-        <label class="form-label" for="edit-username">Nazwa użytkownika</label>
+        <label class="form-label" for="edit-username">Nazwa użytkownika (link do profilu)</label>
         <input class="form-input" id="edit-username">
       </div>
       <div class="form-row">
